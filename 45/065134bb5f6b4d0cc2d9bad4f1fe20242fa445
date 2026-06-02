@@ -1,0 +1,19 @@
+docs/brainstorms/2026-06-02-request-evidence-requirements.md
+  s_3f40d8fe256c06::t_175e333b9a0153 1-225
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "45065134bb5f6b4d0cc2d9bad4f1fe20242fa445",
+  "prompts": {},
+  "sessions": {
+    "s_3f40d8fe256c06": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93052b1c-578c-415e-9c5e-e39315ef92f9",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "charitra-prem <charitra@premai.io>"
+    }
+  }
+}
