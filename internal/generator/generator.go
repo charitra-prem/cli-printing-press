@@ -5102,6 +5102,9 @@ func bodyVarDecls(endpoint spec.Endpoint) string {
 	}
 	if bodyUsesFlatEmission(endpoint) {
 		for _, p := range endpoint.Body {
+			if isAuthSecretBodyParam(p) {
+				continue
+			}
 			fmt.Fprintf(&b, "\n\tvar body%s %s", toCamel(paramIdent(p)), goTypeForParamRequired(p.Name, p.Type, p.Required, paramHasDefault(p)))
 		}
 		return b.String()
@@ -5147,6 +5150,9 @@ func bodyFlagRegs(endpoint spec.Endpoint) string {
 	}
 	if bodyUsesFlatEmission(endpoint) {
 		for _, p := range endpoint.Body {
+			if isAuthSecretBodyParam(p) {
+				continue
+			}
 			renderFlatBodyFlagReg(&b, p, "", "", true)
 		}
 		return b.String()
@@ -5212,6 +5218,9 @@ func bodyRequiredChecks(endpoint spec.Endpoint, indent string) string {
 	}
 	if bodyUsesFlatEmission(endpoint) {
 		for _, p := range endpoint.Body {
+			if isAuthSecretBodyParam(p) {
+				continue
+			}
 			renderFlatBodyRequiredCheck(&b, p, indent, "", true)
 		}
 		return b.String()
@@ -5295,6 +5304,10 @@ func joinFlag(prefix, name string) string {
 func multipartBodyMaps(body []spec.Param, indent string) string {
 	var b strings.Builder
 	for _, p := range body {
+		if isAuthSecretBodyParam(p) {
+			renderAuthSecretBodyAssign(&b, p, indent, multipartBodyAssignTmpl)
+			continue
+		}
 		id := paramIdent(p)
 		ident := toCamel(id)
 		flag := publicFlagName(p)
@@ -5504,6 +5517,10 @@ func sortedKeys[V any](m map[string]V) []string {
 func formBodyMaps(body []spec.Param, indent string) string {
 	var b strings.Builder
 	for _, p := range body {
+		if isAuthSecretBodyParam(p) {
+			renderAuthSecretBodyAssign(&b, p, indent, formBodyAssignTmpl)
+			continue
+		}
 		id := paramIdent(p)
 		ident := toCamel(id)
 		flag := publicFlagName(p)
@@ -5527,6 +5544,43 @@ func formBodyMaps(body []spec.Param, indent string) string {
 		fmt.Fprintf(&b, "%s}\n", indent)
 	}
 	return b.String()
+}
+
+// isAuthSecretBodyParam reports whether the body param is classified as an
+// auth-secret by the browser-sniff classifier — meaning its captured value
+// matched a Slack workspace-token or JWT shape. Such fields are routed to an
+// env-var read at request time so the secret never appears in shell history
+// as a --flag value.
+func isAuthSecretBodyParam(p spec.Param) bool {
+	return p.Classification == spec.ParamClassAuthSecret
+}
+
+// authSecretBodyEnvName returns the env var that resolves an auth-secret body
+// field at request time. The convention is upper-snake of the body field's
+// wire name (so the experiment's Slack `token=xoxc-...` field reads from
+// $TOKEN). Per-API prefixing is deferred to PR 5 when the wireevidence sidecar
+// gives the codegen layer the API context to construct a non-colliding name.
+func authSecretBodyEnvName(p spec.Param) string {
+	name := strings.TrimSpace(p.BodyWireName())
+	if name == "" {
+		name = p.Name
+	}
+	return strings.ToUpper(strings.ReplaceAll(naming.Snake(name), "-", "_"))
+}
+
+const (
+	multipartBodyAssignTmpl = "fields[%q] = %s"
+	formBodyAssignTmpl      = "fields.Set(%q, %s)"
+)
+
+// renderAuthSecretBodyAssign emits the runtime read+assign for an auth-secret
+// body field. When the env var is unset the body field is omitted (the
+// generated CLI's doctor surfaces the missing credential separately).
+func renderAuthSecretBodyAssign(b *strings.Builder, p spec.Param, indent, assignTmpl string) {
+	env := authSecretBodyEnvName(p)
+	fmt.Fprintf(b, "%sif v := os.Getenv(%q); v != \"\" {\n", indent, env)
+	fmt.Fprintf(b, "%s\t"+assignTmpl+"\n", indent, p.BodyWireName(), "v")
+	fmt.Fprintf(b, "%s}\n", indent)
 }
 
 func isBinaryParam(p spec.Param) bool {

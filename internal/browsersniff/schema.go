@@ -2,7 +2,10 @@ package browsersniff
 
 import (
 	"encoding/json"
+	"io"
 	"math"
+	"mime"
+	"mime/multipart"
 	"net/url"
 	"regexp"
 	"sort"
@@ -89,14 +92,22 @@ func InferRequestSchema(body string, contentType string) []spec.Param {
 
 		params := make([]spec.Param, 0, len(values))
 		for key, value := range values {
-			params = append(params, spec.Param{
-				Name:        key,
-				Type:        inferScalarStringType(value),
-				Required:    true,
-				Description: "",
-			})
+			params = append(params, bodyFieldParam(key, value, spec.ParamLocationBodyForm))
 		}
 
+		sort.Slice(params, func(i, j int) bool {
+			return params[i].Name < params[j].Name
+		})
+		return params
+	case strings.Contains(contentType, "multipart/form-data"):
+		values := ParseMultipartBody(body, contentType)
+		if len(values) == 0 {
+			return nil
+		}
+		params := make([]spec.Param, 0, len(values))
+		for key, value := range values {
+			params = append(params, bodyFieldParam(key, value, spec.ParamLocationBodyMultipart))
+		}
 		sort.Slice(params, func(i, j int) bool {
 			return params[i].Name < params[j].Name
 		})
@@ -104,6 +115,93 @@ func InferRequestSchema(body string, contentType string) []spec.Param {
 	default:
 		return nil
 	}
+}
+
+// ParseMultipartBody decodes a multipart/form-data request body into a
+// field→value map keyed on the part's form-data name. The boundary is read
+// from the Content-Type header (mime.ParseMediaType). File parts are skipped:
+// the press surfaces multipart structure for downstream codegen, not file
+// payloads. Returns an empty map on any parse failure so callers degrade to
+// "no extracted fields" rather than erroring the whole sniff.
+func ParseMultipartBody(body string, contentType string) map[string]string {
+	_, params, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		return map[string]string{}
+	}
+	boundary := params["boundary"]
+	if boundary == "" {
+		return map[string]string{}
+	}
+	reader := multipart.NewReader(strings.NewReader(body), boundary)
+	out := map[string]string{}
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return out
+		}
+		name := part.FormName()
+		if name == "" {
+			_ = part.Close()
+			continue
+		}
+		// Skip file parts — only scalar form fields become wire-shape params.
+		if part.FileName() != "" {
+			_ = part.Close()
+			continue
+		}
+		value, err := io.ReadAll(part)
+		_ = part.Close()
+		if err != nil {
+			continue
+		}
+		out[name] = string(value)
+	}
+	return out
+}
+
+// bodyFieldParam wraps a single form/multipart body field as a spec.Param,
+// stamping its ContentLocation so downstream codegen routes it to the right
+// body encoder and applying the PR 3 classifier rule for token-shaped values
+// (xox*-prefixed Slack tokens and eyJ-prefixed JWTs) so secrets become
+// env-var-backed instead of leaking into shell history as a --flag value.
+//
+// Body-field-name normalization decision (open question 2 in the
+// request-evidence plan): the public CLI flag name is derived by the
+// generator's existing FlagName helper (kebab-case), so hyphenated and
+// snake-case wire names both round-trip to the same CLI surface. The wire
+// Name is preserved verbatim here; only the public surface gets normalized.
+func bodyFieldParam(name string, value string, location string) spec.Param {
+	p := spec.Param{
+		Name:            name,
+		Type:            inferScalarStringType(value),
+		Required:        true,
+		Description:     "",
+		ContentLocation: location,
+	}
+	if isAuthSecretValue(value) {
+		p.Classification = spec.ParamClassAuthSecret
+	}
+	return p
+}
+
+var (
+	// slackTokenPattern matches xoxa/xoxb/xoxc/xoxd/xoxp/xoxr workspace tokens.
+	slackTokenPattern = regexp.MustCompile(`^xox[abcdpr]-`)
+	// jwtPattern matches the standard JWT header prefix (`eyJ` is the base64
+	// of `{"`). Used as a cheap shape check; full JWT validation is overkill
+	// for classifier purposes.
+	jwtPattern = regexp.MustCompile(`^eyJ`)
+)
+
+func isAuthSecretValue(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return false
+	}
+	return slackTokenPattern.MatchString(trimmed) || jwtPattern.MatchString(trimmed)
 }
 
 func ParseFormBody(body string) map[string]string {

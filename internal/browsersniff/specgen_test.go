@@ -1394,3 +1394,121 @@ func findBodyParam(params []spec.Param, name string) *spec.Param {
 	}
 	return nil
 }
+
+func TestAnalyzeCapture_FormUrlencodedBodyTagsContentLocation(t *testing.T) {
+	t.Parallel()
+
+	capture := &EnrichedCapture{
+		TargetURL: "https://api.example.com",
+		Entries: []EnrichedEntry{
+			{
+				Method:              "POST",
+				URL:                 "https://api.example.com/v1/widgets",
+				RequestHeaders:      map[string]string{"Content-Type": "application/x-www-form-urlencoded"},
+				RequestBody:         "name=widget&qty=3",
+				ResponseStatus:      200,
+				ResponseContentType: "application/json",
+				ResponseBody:        `{"ok":true}`,
+			},
+		},
+	}
+
+	apiSpec, err := AnalyzeCapture(capture)
+	require.NoError(t, err)
+
+	var endpoint spec.Endpoint
+	for _, resource := range apiSpec.Resources {
+		for _, candidate := range resource.Endpoints {
+			if candidate.Method == "POST" && candidate.Path == "/v1/widgets" {
+				endpoint = candidate
+			}
+		}
+	}
+	require.Equal(t, "POST", endpoint.Method)
+	assert.Equal(t, "application/x-www-form-urlencoded", endpoint.RequestContentType)
+	require.NotEmpty(t, endpoint.Body)
+	name := findBodyParam(endpoint.Body, "name")
+	require.NotNil(t, name)
+	assert.Equal(t, spec.ParamLocationBodyForm, name.ContentLocation)
+	assert.Empty(t, name.Classification)
+}
+
+func TestAnalyzeCapture_MultipartBodyTagsContentLocationAndAuthSecret(t *testing.T) {
+	t.Parallel()
+
+	boundary := "----xyz"
+	body := "--" + boundary + "\r\n" +
+		"Content-Disposition: form-data; name=\"token\"\r\n\r\n" +
+		"xoxc-12345-abcdef\r\n" +
+		"--" + boundary + "\r\n" +
+		"Content-Disposition: form-data; name=\"channel\"\r\n\r\n" +
+		"C0123\r\n" +
+		"--" + boundary + "--\r\n"
+	capture := &EnrichedCapture{
+		TargetURL: "https://slack.example.com",
+		Entries: []EnrichedEntry{
+			{
+				Method:              "POST",
+				URL:                 "https://slack.example.com/api/conversations.history",
+				RequestHeaders:      map[string]string{"Content-Type": "multipart/form-data; boundary=" + boundary},
+				RequestBody:         body,
+				ResponseStatus:      200,
+				ResponseContentType: "application/json",
+				ResponseBody:        `{"ok":true,"messages":[]}`,
+			},
+		},
+	}
+
+	apiSpec, err := AnalyzeCapture(capture)
+	require.NoError(t, err)
+
+	var endpoint spec.Endpoint
+	for _, resource := range apiSpec.Resources {
+		for _, candidate := range resource.Endpoints {
+			if candidate.Method == "POST" && strings.Contains(candidate.Path, "conversations.history") {
+				endpoint = candidate
+			}
+		}
+	}
+	require.Equal(t, "POST", endpoint.Method)
+	assert.Equal(t, "multipart/form-data", endpoint.RequestContentType)
+	require.NotEmpty(t, endpoint.Body)
+
+	tokenParam := findBodyParam(endpoint.Body, "token")
+	require.NotNil(t, tokenParam, "expected token body param to survive")
+	assert.Equal(t, spec.ParamLocationBodyMultipart, tokenParam.ContentLocation)
+	assert.Equal(t, spec.ParamClassAuthSecret, tokenParam.Classification, "xoxc-prefixed body field should be auth-secret")
+
+	channelParam := findBodyParam(endpoint.Body, "channel")
+	require.NotNil(t, channelParam)
+	assert.Equal(t, spec.ParamLocationBodyMultipart, channelParam.ContentLocation)
+	assert.Empty(t, channelParam.Classification)
+}
+
+func TestAnalyzeCapture_QueryParamsKeepDefaultContentLocation(t *testing.T) {
+	t.Parallel()
+
+	capture := &EnrichedCapture{
+		TargetURL: "https://api.example.com",
+		Entries: []EnrichedEntry{
+			{
+				Method:              "GET",
+				URL:                 "https://api.example.com/v1/widgets?limit=20",
+				ResponseStatus:      200,
+				ResponseContentType: "application/json",
+				ResponseBody:        `{"items":[]}`,
+			},
+		},
+	}
+
+	apiSpec, err := AnalyzeCapture(capture)
+	require.NoError(t, err)
+
+	for _, resource := range apiSpec.Resources {
+		for _, endpoint := range resource.Endpoints {
+			for _, p := range endpoint.Params {
+				assert.Empty(t, p.ContentLocation, "query/path params keep the legacy default for backwards compat (param %s)", p.Name)
+			}
+		}
+	}
+}

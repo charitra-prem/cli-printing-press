@@ -2197,7 +2197,33 @@ type Param struct {
 	// It lets validation distinguish an omitted public name from invalid
 	// `flag_name: ""` while still allowing overlays to clear FlagName.
 	FlagNameSet bool `yaml:"-" json:"-"`
+	// ContentLocation declares where this param belongs in the wire request.
+	// Empty (or "query") means the existing query/path-param behavior; the
+	// values ParamLocationBodyForm and ParamLocationBodyMultipart mark fields
+	// that browsersniff extracted from form-urlencoded / multipart request
+	// bodies so the generator can build the right body shape.
+	ContentLocation string `yaml:"content_location,omitempty" json:"content_location,omitempty"`
+	// Classification is the wire-evidence class for this param's observed
+	// value. Currently only ParamClassAuthSecret is emitted (PR 3); the
+	// remaining four classes (protocol-constant, semantic-default,
+	// volatile-drop, unknown) will be set by the PR 4 evidence classifier.
+	Classification string `yaml:"classification,omitempty" json:"classification,omitempty"`
 }
+
+const (
+	// ParamLocationQuery is the implicit default (empty string).
+	ParamLocationQuery          = "query"
+	ParamLocationBodyForm       = "body_form"
+	ParamLocationBodyMultipart  = "body_multipart"
+)
+
+const (
+	ParamClassAuthSecret      = "auth-secret"
+	ParamClassProtocolConst   = "protocol-constant"
+	ParamClassSemanticDefault = "semantic-default"
+	ParamClassVolatileDrop    = "volatile-drop"
+	ParamClassUnknown         = "unknown"
+)
 
 // WireName returns the URL query-key name for this param when emitted in a
 // generated HTTP request. URLName takes precedence when set (e.g., "$limit" for
