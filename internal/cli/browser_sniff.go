@@ -10,6 +10,7 @@ import (
 
 	"github.com/mvanhorn/cli-printing-press/v4/internal/browsersniff"
 	"github.com/mvanhorn/cli-printing-press/v4/internal/spec"
+	"github.com/mvanhorn/cli-printing-press/v4/internal/wireevidence"
 	"github.com/spf13/cobra"
 )
 
@@ -17,13 +18,20 @@ func newBrowserSniffCmd() *cobra.Command {
 	var harPath string
 	var outputPath string
 	var analysisOutputPath string
+	var evidenceOutputPath string
 	var samplesOutputPath string
 	var name string
 	var blocklist string
 	var include string
 	var minSamples int
 	var authFrom string
-	var preserveHosts bool
+	// preserveHosts defaults to true on browser-sniff: a sniffed capture is
+	// the only authoritative record of which host each endpoint actually
+	// lives on. Collapsing to a single primary host (the legacy default)
+	// silently routes secondary-host endpoints to the wrong URL — the
+	// experiment's top wire bug. Operators who want the old collapsing
+	// behavior can still pass --preserve-hosts=false.
+	preserveHosts := true
 
 	cmd := &cobra.Command{
 		Use:   "browser-sniff",
@@ -65,6 +73,9 @@ func newBrowserSniffCmd() *cobra.Command {
 			if analysisOutputPath == "" {
 				analysisOutputPath = browsersniff.DefaultTrafficAnalysisPath(outputPath)
 			}
+			if evidenceOutputPath == "" {
+				evidenceOutputPath = browsersniff.DefaultRequestEvidencePath(outputPath)
+			}
 			if samplesOutputPath == "" {
 				samplesOutputPath = browsersniff.DefaultSamplesPath(outputPath)
 			}
@@ -77,7 +88,9 @@ func newBrowserSniffCmd() *cobra.Command {
 
 			droppedEndpoints := browsersniff.FilterEndpointsByMinSamplesWithOptions(apiSpec, capture, minSamples, analyzeOptions)
 
-			samplesWritten, err := writeBrowserSniffOutputs(apiSpec, trafficAnalysis, capture, outputPath, analysisOutputPath, samplesOutputPath, analyzeOptions)
+			requestEvidence := browsersniff.BuildRequestEvidenceFromCapture(capture, analyzeOptions)
+
+			samplesWritten, err := writeBrowserSniffOutputs(apiSpec, trafficAnalysis, requestEvidence, capture, outputPath, analysisOutputPath, evidenceOutputPath, samplesOutputPath, analyzeOptions)
 			if err != nil {
 				return err
 			}
@@ -89,6 +102,7 @@ func newBrowserSniffCmd() *cobra.Command {
 
 			fmt.Printf("Spec written to %s (%d endpoints across %d resources)\n", outputPath, endpoints, len(apiSpec.Resources))
 			fmt.Printf("Traffic analysis written to %s\n", analysisOutputPath)
+			fmt.Printf("Request evidence written to %s\n", evidenceOutputPath)
 			if samplesOutputPath != "" && samplesWritten > 0 {
 				fmt.Printf("Samples written to %s (%d endpoint%s)\n", samplesOutputPath, samplesWritten, plural(samplesWritten))
 			}
@@ -103,11 +117,12 @@ func newBrowserSniffCmd() *cobra.Command {
 	cmd.Flags().StringVar(&harPath, "har", "", "Path to HAR or enriched capture file")
 	cmd.Flags().StringVar(&outputPath, "output", "", "Output path for generated spec YAML")
 	cmd.Flags().StringVar(&analysisOutputPath, "analysis-output", "", "Output path for traffic analysis JSON (defaults beside the spec)")
+	cmd.Flags().StringVar(&evidenceOutputPath, "evidence-output", "", "Output path for request-evidence JSON sidecar (defaults to <spec-stem>-request-evidence.json beside the spec)")
 	cmd.Flags().StringVar(&samplesOutputPath, "samples-output", "", "Output directory for per-endpoint redacted samples (defaults to <spec-stem>-samples beside the spec; pass empty string to disable via --samples-output=\"\")")
 	cmd.Flags().StringVar(&name, "name", "", "Override the auto-detected API name")
 	cmd.Flags().StringVar(&blocklist, "blocklist", "", "Comma-separated additional hostnames to filter (extends the default analytics/telemetry blocklist)")
 	cmd.Flags().StringVar(&include, "include", "", "Comma-separated host or path substrings to rescue from default filtering; matches win over --blocklist and the static-asset suffix demotion")
-	cmd.Flags().BoolVar(&preserveHosts, "preserve-hosts", false, "Keep secondary API hosts in the generated spec with per-endpoint base_url overrides instead of selecting only the dominant host")
+	cmd.Flags().BoolVar(&preserveHosts, "preserve-hosts", preserveHosts, "Keep every captured host with per-endpoint base_url overrides. Defaults to true for browser-sniff because the capture is the authoritative record of which host each endpoint lives on; pass --preserve-hosts=false to collapse onto the dominant host (legacy behavior)")
 	cmd.Flags().IntVar(&minSamples, "min-samples", 1, "Drop endpoints with fewer than N paired samples from the emitted spec; the dropped endpoints remain in the traffic-analysis sidecar for audit. Default 1 leaves behavior unchanged; 2+ is recommended for production capture")
 	cmd.Flags().StringVar(&authFrom, "auth-from", "", "Path to an enriched capture file to import auth from")
 	_ = cmd.MarkFlagRequired("har")
@@ -122,17 +137,22 @@ func plural(n int) string {
 	return "s"
 }
 
-func writeBrowserSniffOutputs(apiSpec *spec.APISpec, trafficAnalysis *browsersniff.TrafficAnalysis, capture *browsersniff.EnrichedCapture, outputPath string, analysisOutputPath string, samplesOutputPath string, analyzeOptions browsersniff.AnalyzeOptions) (int, error) {
+func writeBrowserSniffOutputs(apiSpec *spec.APISpec, trafficAnalysis *browsersniff.TrafficAnalysis, requestEvidence []wireevidence.RequestEvidence, capture *browsersniff.EnrichedCapture, outputPath string, analysisOutputPath string, evidenceOutputPath string, samplesOutputPath string, analyzeOptions browsersniff.AnalyzeOptions) (int, error) {
 	specTmp := siblingTempPath(outputPath, "spec")
 	analysisTmp := siblingTempPath(analysisOutputPath, "traffic-analysis")
+	evidenceTmp := siblingTempPath(evidenceOutputPath, "request-evidence")
 	defer func() { _ = os.Remove(specTmp) }()
 	defer func() { _ = os.Remove(analysisTmp) }()
+	defer func() { _ = os.Remove(evidenceTmp) }()
 
 	if err := browsersniff.WriteSpec(apiSpec, specTmp); err != nil {
 		return 0, fmt.Errorf("writing spec: %w", err)
 	}
 	if err := browsersniff.WriteTrafficAnalysis(trafficAnalysis, analysisTmp); err != nil {
 		return 0, fmt.Errorf("writing traffic analysis: %w", err)
+	}
+	if err := browsersniff.WriteRequestEvidence(requestEvidence, evidenceTmp); err != nil {
+		return 0, fmt.Errorf("writing request evidence: %w", err)
 	}
 
 	samplesWritten := 0
@@ -165,6 +185,12 @@ func writeBrowserSniffOutputs(apiSpec *spec.APISpec, trafficAnalysis *browsersni
 		restoreFileBackup(analysisOutputPath, analysisBackup, analysisHadBackup)
 		return 0, fmt.Errorf("preparing spec publish: %w", err)
 	}
+	evidenceBackup, evidenceHadBackup, err := backupFileForReplace(evidenceOutputPath)
+	if err != nil {
+		restoreFileBackup(analysisOutputPath, analysisBackup, analysisHadBackup)
+		restoreFileBackup(outputPath, specBackup, specHadBackup)
+		return 0, fmt.Errorf("preparing request evidence publish: %w", err)
+	}
 	samplesBackup := ""
 	samplesHadBackup := false
 	if samplesTmp != "" {
@@ -172,6 +198,7 @@ func writeBrowserSniffOutputs(apiSpec *spec.APISpec, trafficAnalysis *browsersni
 		if err != nil {
 			restoreFileBackup(analysisOutputPath, analysisBackup, analysisHadBackup)
 			restoreFileBackup(outputPath, specBackup, specHadBackup)
+			restoreFileBackup(evidenceOutputPath, evidenceBackup, evidenceHadBackup)
 			return 0, fmt.Errorf("preparing samples publish: %w", err)
 		}
 	}
@@ -180,6 +207,7 @@ func writeBrowserSniffOutputs(apiSpec *spec.APISpec, trafficAnalysis *browsersni
 		if cleanupBackups {
 			_ = os.Remove(analysisBackup)
 			_ = os.Remove(specBackup)
+			_ = os.Remove(evidenceBackup)
 			if samplesBackup != "" {
 				_ = os.RemoveAll(samplesBackup)
 			}
@@ -189,6 +217,7 @@ func writeBrowserSniffOutputs(apiSpec *spec.APISpec, trafficAnalysis *browsersni
 	if err := os.Rename(analysisTmp, analysisOutputPath); err != nil {
 		restoreFileBackup(analysisOutputPath, analysisBackup, analysisHadBackup)
 		restoreFileBackup(outputPath, specBackup, specHadBackup)
+		restoreFileBackup(evidenceOutputPath, evidenceBackup, evidenceHadBackup)
 		restoreDirBackup(samplesOutputPath, samplesBackup, samplesHadBackup)
 		return 0, fmt.Errorf("publishing traffic analysis: %w", err)
 	}
@@ -196,15 +225,27 @@ func writeBrowserSniffOutputs(apiSpec *spec.APISpec, trafficAnalysis *browsersni
 		_ = os.Remove(analysisOutputPath)
 		restoreFileBackup(analysisOutputPath, analysisBackup, analysisHadBackup)
 		restoreFileBackup(outputPath, specBackup, specHadBackup)
+		restoreFileBackup(evidenceOutputPath, evidenceBackup, evidenceHadBackup)
 		restoreDirBackup(samplesOutputPath, samplesBackup, samplesHadBackup)
 		return 0, fmt.Errorf("publishing spec: %w", err)
+	}
+	if err := os.Rename(evidenceTmp, evidenceOutputPath); err != nil {
+		_ = os.Remove(analysisOutputPath)
+		_ = os.Remove(outputPath)
+		restoreFileBackup(analysisOutputPath, analysisBackup, analysisHadBackup)
+		restoreFileBackup(outputPath, specBackup, specHadBackup)
+		restoreFileBackup(evidenceOutputPath, evidenceBackup, evidenceHadBackup)
+		restoreDirBackup(samplesOutputPath, samplesBackup, samplesHadBackup)
+		return 0, fmt.Errorf("publishing request evidence: %w", err)
 	}
 	if samplesTmp != "" {
 		if err := os.Rename(samplesTmp, samplesOutputPath); err != nil {
 			_ = os.Remove(analysisOutputPath)
 			_ = os.Remove(outputPath)
+			_ = os.Remove(evidenceOutputPath)
 			restoreFileBackup(analysisOutputPath, analysisBackup, analysisHadBackup)
 			restoreFileBackup(outputPath, specBackup, specHadBackup)
+			restoreFileBackup(evidenceOutputPath, evidenceBackup, evidenceHadBackup)
 			restoreDirBackup(samplesOutputPath, samplesBackup, samplesHadBackup)
 			return 0, fmt.Errorf("publishing samples: %w", err)
 		}

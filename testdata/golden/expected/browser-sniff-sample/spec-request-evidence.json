@@ -1,0 +1,191 @@
+{
+  "requests": [
+    {
+      "base_url": "https://httpbin.org",
+      "exemplars": [
+        {
+          "headers": {
+            "Accept-Language": "en-US,en;q=0.9",
+            "Upgrade-Insecure-Requests": "1",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Chromium\";v=\"147\", \"Not.A/Brand\";v=\"8\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"macOS\""
+          },
+          "url": "https://httpbin.org/get"
+        }
+      ],
+      "method": "GET",
+      "normalized_path": "/get",
+      "slots": [
+        {
+          "classification": "protocol-constant",
+          "constant": true,
+          "location": "header",
+          "name": "Accept-Language",
+          "value": "en-US,en;q=0.9"
+        },
+        {
+          "classification": "semantic-default",
+          "constant": true,
+          "location": "header",
+          "name": "Upgrade-Insecure-Requests",
+          "value": "1"
+        },
+        {
+          "classification": "protocol-constant",
+          "constant": true,
+          "location": "header",
+          "name": "User-Agent",
+          "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.0.0 Safari/537.36"
+        },
+        {
+          "classification": "semantic-default",
+          "constant": true,
+          "location": "header",
+          "name": "sec-ch-ua",
+          "value": "\"Chromium\";v=\"147\", \"Not.A/Brand\";v=\"8\""
+        },
+        {
+          "classification": "semantic-default",
+          "constant": true,
+          "location": "header",
+          "name": "sec-ch-ua-mobile",
+          "value": "?0"
+        },
+        {
+          "classification": "semantic-default",
+          "constant": true,
+          "location": "header",
+          "name": "sec-ch-ua-platform",
+          "value": "\"macOS\""
+        }
+      ]
+    },
+    {
+      "base_url": "https://httpbin.org",
+      "exemplars": [
+        {
+          "headers": {
+            "Accept-Language": "en-US,en;q=0.9",
+            "Upgrade-Insecure-Requests": "1",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Chromium\";v=\"147\", \"Not.A/Brand\";v=\"8\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"macOS\""
+          },
+          "url": "https://httpbin.org/headers"
+        }
+      ],
+      "method": "GET",
+      "normalized_path": "/headers",
+      "slots": [
+        {
+          "classification": "protocol-constant",
+          "constant": true,
+          "location": "header",
+          "name": "Accept-Language",
+          "value": "en-US,en;q=0.9"
+        },
+        {
+          "classification": "semantic-default",
+          "constant": true,
+          "location": "header",
+          "name": "Upgrade-Insecure-Requests",
+          "value": "1"
+        },
+        {
+          "classification": "protocol-constant",
+          "constant": true,
+          "location": "header",
+          "name": "User-Agent",
+          "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.0.0 Safari/537.36"
+        },
+        {
+          "classification": "semantic-default",
+          "constant": true,
+          "location": "header",
+          "name": "sec-ch-ua",
+          "value": "\"Chromium\";v=\"147\", \"Not.A/Brand\";v=\"8\""
+        },
+        {
+          "classification": "semantic-default",
+          "constant": true,
+          "location": "header",
+          "name": "sec-ch-ua-mobile",
+          "value": "?0"
+        },
+        {
+          "classification": "semantic-default",
+          "constant": true,
+          "location": "header",
+          "name": "sec-ch-ua-platform",
+          "value": "\"macOS\""
+        }
+      ]
+    },
+    {
+      "base_url": "https://httpbin.org",
+      "exemplars": [
+        {
+          "headers": {
+            "Accept-Language": "en-US,en;q=0.9",
+            "Upgrade-Insecure-Requests": "1",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Chromium\";v=\"147\", \"Not.A/Brand\";v=\"8\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"macOS\""
+          },
+          "url": "https://httpbin.org/ip"
+        }
+      ],
+      "method": "GET",
+      "normalized_path": "/ip",
+      "slots": [
+        {
+          "classification": "protocol-constant",
+          "constant": true,
+          "location": "header",
+          "name": "Accept-Language",
+          "value": "en-US,en;q=0.9"
+        },
+        {
+          "classification": "semantic-default",
+          "constant": true,
+          "location": "header",
+          "name": "Upgrade-Insecure-Requests",
+          "value": "1"
+        },
+        {
+          "classification": "protocol-constant",
+          "constant": true,
+          "location": "header",
+          "name": "User-Agent",
+          "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.0.0 Safari/537.36"
+        },
+        {
+          "classification": "semantic-default",
+          "constant": true,
+          "location": "header",
+          "name": "sec-ch-ua",
+          "value": "\"Chromium\";v=\"147\", \"Not.A/Brand\";v=\"8\""
+        },
+        {
+          "classification": "semantic-default",
+          "constant": true,
+          "location": "header",
+          "name": "sec-ch-ua-mobile",
+          "value": "?0"
+        },
+        {
+          "classification": "semantic-default",
+          "constant": true,
+          "location": "header",
+          "name": "sec-ch-ua-platform",
+          "value": "\"macOS\""
+        }
+      ]
+    }
+  ],
+  "version": "1"
+}

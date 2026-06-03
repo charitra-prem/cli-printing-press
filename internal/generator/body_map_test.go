@@ -620,6 +620,63 @@ func TestBodyHasStringBackedBool(t *testing.T) {
 	}
 }
 
+func TestNonJSONBodyMaps_AuthSecretReadsEnvVarNotFlag(t *testing.T) {
+	t.Parallel()
+	body := []spec.Param{
+		{Name: "token", Type: "string", Required: true, ContentLocation: spec.ParamLocationBodyMultipart, Classification: spec.ParamClassAuthSecret},
+		{Name: "channel", Type: "string", Required: true, ContentLocation: spec.ParamLocationBodyMultipart},
+	}
+	multipart := multipartBodyMaps(body, "\t")
+	if !strings.Contains(multipart, `os.Getenv("TOKEN")`) {
+		t.Errorf("expected multipart auth-secret token to read $TOKEN, got:\n%s", multipart)
+	}
+	if !strings.Contains(multipart, `fields["token"] = v`) {
+		t.Errorf("expected multipart auth-secret token to assign fields[\"token\"], got:\n%s", multipart)
+	}
+	if strings.Contains(multipart, "bodyToken") {
+		t.Errorf("multipart auth-secret token must not reference bodyToken flag, got:\n%s", multipart)
+	}
+	if !strings.Contains(multipart, "bodyChannel") {
+		t.Errorf("non-auth-secret channel field should keep its bodyChannel flag, got:\n%s", multipart)
+	}
+
+	body2 := []spec.Param{
+		{Name: "token", Type: "string", Required: true, ContentLocation: spec.ParamLocationBodyForm, Classification: spec.ParamClassAuthSecret},
+	}
+	form := formBodyMaps(body2, "\t")
+	if !strings.Contains(form, `os.Getenv("TOKEN")`) {
+		t.Errorf("expected form auth-secret token to read $TOKEN, got:\n%s", form)
+	}
+	if !strings.Contains(form, `fields.Set("token", v)`) {
+		t.Errorf("expected form auth-secret token to call fields.Set, got:\n%s", form)
+	}
+
+	endpoint := spec.Endpoint{
+		Method:             "POST",
+		Path:               "/api/conversations.history",
+		RequestContentType: "multipart/form-data",
+		Body:               body,
+	}
+	regs := bodyFlagRegs(endpoint)
+	if strings.Contains(regs, "\"token\"") {
+		t.Errorf("auth-secret token must not register a --token cobra flag, got:\n%s", regs)
+	}
+	if !strings.Contains(regs, "\"channel\"") {
+		t.Errorf("non-auth-secret channel must still register a flag, got:\n%s", regs)
+	}
+	decls := bodyVarDecls(endpoint)
+	if strings.Contains(decls, "bodyToken") {
+		t.Errorf("auth-secret token must not declare a bodyToken var, got:\n%s", decls)
+	}
+	if !strings.Contains(decls, "bodyChannel") {
+		t.Errorf("non-auth-secret channel must declare a bodyChannel var, got:\n%s", decls)
+	}
+	checks := bodyRequiredChecks(endpoint, "\t")
+	if strings.Contains(checks, "\"token\"") {
+		t.Errorf("auth-secret token must not emit a required-flag check, got:\n%s", checks)
+	}
+}
+
 func TestNonJSONBodyMaps_RequiredBoolNoDefaultUsesStringZero(t *testing.T) {
 	t.Parallel()
 	body := []spec.Param{{Name: "all_day", Type: "boolean", Required: true}}

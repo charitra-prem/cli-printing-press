@@ -581,6 +581,7 @@ func runGenerateProject(apiSpec *spec.APISpec, absOut string, opts generateProje
 	browsersniff.ApplyReachabilityDefaults(apiSpec, trafficAnalysis)
 	applyHTTPTransportDefault(apiSpec, trafficAnalysis)
 	gen.TrafficAnalysis = trafficAnalysis
+	gen.RequestEvidencePath = inferRequestEvidencePath(opts.specFiles, apiSpec.SpecSource)
 	if err := gen.Generate(); err != nil {
 		return generateProjectResult{}, &ExitError{Code: ExitGenerationError, Err: fmt.Errorf("generating project: %w", err)}
 	}
@@ -933,6 +934,25 @@ func inferTrafficAnalysisPath(specFiles []string, specSource string) string {
 		return ""
 	}
 	candidate := browsersniff.DefaultTrafficAnalysisPath(specPath)
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate
+	}
+	return ""
+}
+
+// inferRequestEvidencePath returns the canonical *-request-evidence.json
+// sidecar path emitted by browser-sniff alongside the spec. Mirrors
+// inferTrafficAnalysisPath's gating: only sniffed, single-spec, local-file
+// generations attempt sidecar discovery; missing files are not an error.
+func inferRequestEvidencePath(specFiles []string, specSource string) string {
+	if specSource != "sniffed" || len(specFiles) != 1 {
+		return ""
+	}
+	specPath := specFiles[0]
+	if openapi.IsRemoteSpecSource(specPath) {
+		return ""
+	}
+	candidate := browsersniff.DefaultRequestEvidencePath(specPath)
 	if _, err := os.Stat(candidate); err == nil {
 		return candidate
 	}

@@ -42,6 +42,10 @@ func (g *Generator) Validate() error {
 
 	gates := []validationGate{
 		{
+			name: "request-evidence wire fidelity",
+			run:  g.validateRequestEvidence,
+		},
+		{
 			name: "go mod tidy",
 			run: func() error {
 				_, err := runCommand(g.OutputDir, qualityGateTimeout, "go", "mod", "tidy")
