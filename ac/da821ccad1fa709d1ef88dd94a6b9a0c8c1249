@@ -1,0 +1,38 @@
+testdata/sniff/adversarial/malformed-multipart.har
+  s_83e2011e9d98a6::t_177dad5e8b3f3a 1-50
+internal/browsersniff/request_evidence_matrix_test.go
+  s_83e2011e9d98a6::t_791c75582fdea7 229-237
+  s_83e2011e9d98a6::t_8278cae84575fd 1-228,238-356
+testdata/sniff/stripe-form-idempotency-synthetic.har
+  s_83e2011e9d98a6::t_d3ee442427df4e 1-109
+testdata/sniff/linear-graphql-synthetic.har
+  s_83e2011e9d98a6::t_afe967de483ede 1-95
+testdata/sniff/datadog-composed-synthetic.har
+  s_83e2011e9d98a6::t_84d994a946f9fd 1-99
+testdata/sniff/adversarial/body-without-content-type.har
+  s_83e2011e9d98a6::t_ae41938e636cc5 1-49
+testdata/sniff/adversarial/single-exemplar-name-conflict.har
+  s_83e2011e9d98a6::t_633be56cbb0ba1 1-46
+internal/wireevidence/classifier_extensions_test.go
+  s_83e2011e9d98a6::t_336df92308cee4 1-152
+internal/browsersniff/adversarial_test.go
+  s_83e2011e9d98a6::t_17028c7e0f7fbe 43
+  s_83e2011e9d98a6::t_ffbf5b1bf6b8ff 1-6,8-42,44-110
+  s_83e2011e9d98a6::t_93d731efcc50e2 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "acda821ccad1fa709d1ef88dd94a6b9a0c8c1249",
+  "prompts": {},
+  "sessions": {
+    "s_83e2011e9d98a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b448205b-83ea-4c8f-82e3-2ff83369d690",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "charitra-prem <charitra@premai.io>"
+    }
+  }
+}
