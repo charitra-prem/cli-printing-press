@@ -1,0 +1,21 @@
+docs/brainstorms/2026-06-04-request-evidence-pr7-roadmap.md
+  s_83e2011e9d98a6::t_bc857c46a1d765 1-122
+docs/brainstorms/2026-06-04-codex-review.txt
+  s_83e2011e9d98a6::t_5811e39f02bd6e 1-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "81dd62d62c26ed5f5b42b9113e3b59235688bb8e",
+  "prompts": {},
+  "sessions": {
+    "s_83e2011e9d98a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b448205b-83ea-4c8f-82e3-2ff83369d690",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "charitra-prem <charitra@premai.io>"
+    }
+  }
+}
