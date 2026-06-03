@@ -216,7 +216,8 @@ func TestWriteBrowserSniffOutputsRestoresExistingFilesWhenSpecPublishFails(t *te
 		Types:       map[string]spec.TypeDef{},
 	}
 
-	_, err := writeBrowserSniffOutputs(apiSpec, &browsersniff.TrafficAnalysis{Version: "1"}, nil, blockingDir, analysisPath, "", browsersniff.AnalyzeOptions{})
+	evidencePath := browsersniff.DefaultRequestEvidencePath(blockingDir)
+	_, err := writeBrowserSniffOutputs(apiSpec, &browsersniff.TrafficAnalysis{Version: "1"}, nil, nil, blockingDir, analysisPath, evidencePath, "", browsersniff.AnalyzeOptions{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "preparing spec publish:")
 
@@ -257,7 +258,9 @@ func TestWriteBrowserSniffOutputsWritesSamplesDirectory(t *testing.T) {
 	trafficAnalysis, err := browsersniff.AnalyzeTraffic(capture)
 	require.NoError(t, err)
 
-	written, err := writeBrowserSniffOutputs(apiSpec, trafficAnalysis, capture, specPath, analysisPath, samplesPath, browsersniff.AnalyzeOptions{})
+	evidencePath := browsersniff.DefaultRequestEvidencePath(specPath)
+	evidence := browsersniff.BuildRequestEvidenceFromCapture(capture, browsersniff.AnalyzeOptions{})
+	written, err := writeBrowserSniffOutputs(apiSpec, trafficAnalysis, evidence, capture, specPath, analysisPath, evidencePath, samplesPath, browsersniff.AnalyzeOptions{})
 	require.NoError(t, err)
 	assert.Positive(t, written, "at least one sample file should be written")
 
@@ -313,7 +316,9 @@ func TestWriteBrowserSniffOutputsRestoresSamplesDirOnSpecFailure(t *testing.T) {
 	trafficAnalysis, err := browsersniff.AnalyzeTraffic(capture)
 	require.NoError(t, err)
 
-	_, err = writeBrowserSniffOutputs(apiSpec, trafficAnalysis, capture, specPath, analysisPath, samplesPath, browsersniff.AnalyzeOptions{})
+	evidencePath := browsersniff.DefaultRequestEvidencePath(specPath)
+	evidence := browsersniff.BuildRequestEvidenceFromCapture(capture, browsersniff.AnalyzeOptions{})
+	_, err = writeBrowserSniffOutputs(apiSpec, trafficAnalysis, evidence, capture, specPath, analysisPath, evidencePath, samplesPath, browsersniff.AnalyzeOptions{})
 	require.Error(t, err, "should fail because outputPath is a non-empty directory")
 
 	// Pre-existing samples directory must be restored intact.
