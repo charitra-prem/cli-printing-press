@@ -1,0 +1,40 @@
+internal/spec/spec.go
+  s_83e2011e9d98a6::t_e5b51178c09cb1 2200-2210,2213-2226
+internal/generator/generator.go
+  s_83e2011e9d98a6::t_48159e4d5c8ca3 5520-5523
+  s_83e2011e9d98a6::t_1218e27b31fb81 5153-5155
+  s_83e2011e9d98a6::t_495c2409f2637e 5549-5585
+  s_83e2011e9d98a6::t_106af58346da99 5105-5107
+  s_83e2011e9d98a6::t_0640bc9fcbc32e 5221-5223
+  s_83e2011e9d98a6::t_625663be0442d6 5307-5310
+internal/browsersniff/specgen.go
+  s_83e2011e9d98a6::t_5187edecde4151 611,623-629
+  s_83e2011e9d98a6::t_010bcc47df0db1 1070-1109
+internal/browsersniff/specgen_test.go
+  s_83e2011e9d98a6::t_d4dd07287beab4 1397-1514
+internal/generator/body_map_test.go
+  s_83e2011e9d98a6::t_4e84df0d7a162d 623-679
+internal/browsersniff/schema_test.go
+  s_83e2011e9d98a6::t_db06d282f50ac9 8
+  s_83e2011e9d98a6::t_e80d50dca846e3 106-108
+  s_83e2011e9d98a6::t_ea8bcd53a11cab 146-225
+internal/browsersniff/schema.go
+  s_83e2011e9d98a6::t_b7c265726b297f 5,7-8
+  s_83e2011e9d98a6::t_b22b4b4b1d6ed7 95,98-110,120-204
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a6c1bab0a2b09eb224518d189d9a2a971aceecb5",
+  "prompts": {},
+  "sessions": {
+    "s_83e2011e9d98a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b448205b-83ea-4c8f-82e3-2ff83369d690",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "charitra-prem <charitra@premai.io>"
+    }
+  }
+}
