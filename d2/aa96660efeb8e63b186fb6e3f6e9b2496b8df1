@@ -1,0 +1,41 @@
+testdata/sniff/twilio-basic-sid-synthetic.har
+  s_83e2011e9d98a6::t_73fe27518619be 1-105
+internal/wireevidence/classifier_extensions_test.go
+  s_83e2011e9d98a6::t_ac6e7d080dc4ea 266-380
+testdata/sniff/discourse-dual-header-synthetic.har
+  s_83e2011e9d98a6::t_3d7ae49f0d31f1 1-95
+testdata/sniff/adversarial/pagination-link-header.har
+  s_83e2011e9d98a6::t_9a60eec41aae10 1-91
+testdata/sniff/adversarial/head-discovery-request.har
+  s_83e2011e9d98a6::t_c8951a8da19660 1-86
+internal/browsersniff/adversarial_test.go
+  s_83e2011e9d98a6::t_77fdb5a662eb1b 270-398
+testdata/sniff/gitlab-encoded-path-synthetic.har
+  s_83e2011e9d98a6::t_be3995c0bb04cf 1-93
+internal/browsersniff/request_evidence_matrix_test.go
+  s_83e2011e9d98a6::t_2e4908b10b7d26 384-529
+testdata/sniff/tailscale-path-tenant-synthetic.har
+  s_83e2011e9d98a6::t_612fb4040a0594 1-87
+testdata/sniff/homeassistant-lan-websocket-synthetic.har
+  s_83e2011e9d98a6::t_d5fec404470aa3 1-92
+internal/browsersniff/specgen_test.go
+  s_83e2011e9d98a6::t_d2aa8be72643bb 1543-1610
+testdata/sniff/adversarial/query-body-name-collision.har
+  s_83e2011e9d98a6::t_7c70f92b54a61e 1-97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d2aa96660efeb8e63b186fb6e3f6e9b2496b8df1",
+  "prompts": {},
+  "sessions": {
+    "s_83e2011e9d98a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b448205b-83ea-4c8f-82e3-2ff83369d690",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "charitra-prem <charitra@premai.io>"
+    }
+  }
+}
