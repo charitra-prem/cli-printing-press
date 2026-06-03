@@ -1,0 +1,29 @@
+testdata/sniff/slack-redacted.har
+  s_83e2011e9d98a6::t_43ca13a1d4c4dd 1-1524
+internal/browsersniff/slack_redacted_pin_test.go
+  s_83e2011e9d98a6::t_25994691a5e9b0 127
+  s_83e2011e9d98a6::t_c3f054dcaf2571 159
+  s_83e2011e9d98a6::t_3bee73b6f18b6a 180-313
+  s_83e2011e9d98a6::t_16757f6d150c1a 4-5,12-27
+  s_83e2011e9d98a6::t_0387c2e7a4f119 66
+  s_83e2011e9d98a6::t_758a4e8891eccb 105
+  s_83e2011e9d98a6::t_c8a455d451bd1c 1-3,6-11,28-65,67-104,106-126,128-158,160-179,314-345
+testdata/sniff/tickets-synthetic.har
+  s_83e2011e9d98a6::t_959e2b0b7b2069 1-109
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c298a3cac2ec52cbaf6d664f13458e7ff7765668",
+  "prompts": {},
+  "sessions": {
+    "s_83e2011e9d98a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b448205b-83ea-4c8f-82e3-2ff83369d690",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "charitra-prem <charitra@premai.io>"
+    }
+  }
+}
