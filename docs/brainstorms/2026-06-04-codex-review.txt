@@ -1,0 +1,70 @@
+Codex post-implementation review of request-evidence PRs 1-6 against
+live Slack test findings (2026-06-04). Strongest opinion + 5 action
+items returned verbatim:
+
+================================================================
+Strongest opinion: make evidence the sniffed wire authority, but do
+not fork request templates. Project evidence into `spec.APISpec`
+before rendering, then keep the existing CLI/MCP walkers unified.
+
+1. Close the body gap in the spec/evidence projection path first.
+   Touch `internal/browsersniff/types.go::HARPostData` to model HAR
+   `postData.params`, `internal/browsersniff/parser.go::convertHAREntry`
+   to synthesize `RequestBody` and backfill `Content-Type` from
+   `postData.mimeType`, and
+   `internal/browsersniff/specgen.go::{inferRequestBody,
+   dominantBodyContentType, buildEndpoint}` so form/multipart fields
+   land in `spec.Endpoint.Body` with `spec.Param.ContentLocation` and
+   `Classification`. The generator already has the needed body
+   surface: `internal/generator/generator.go::{bodyFlagRegs,
+   multipartBodyMaps, formBodyMaps, isAuthSecretBodyParam}` and
+   `internal/generator/templates/{command_endpoint.go.tmpl,
+   command_promoted.go.tmpl}`. Do not add a Slack-only template
+   branch.
+
+2. Drop volatile slots upstream of generic flag emission. Keep them
+   in `request-evidence.json`, but do not project them into
+   `Endpoint.Params` / `Endpoint.Body`. Extend
+   `internal/wireevidence/classifier.go::ClassifySlot` beyond header
+   names to query/body names like `x-csid`, `fp`, `slack_route`,
+   trace IDs, retry IDs, build timestamps. Then apply those
+   classifications in `internal/browsersniff/specgen.go::inferURLParams`
+   and body projection. If this happens only in templates, MCP tools,
+   tools-manifest, README examples, and required-input checks will
+   still drift.
+
+3. Long term: `request-evidence.json` is authoritative for sniffed
+   wire shape; `spec.yaml` remains the generator IR and human-readable
+   projection, not a lossy summary. Migration path: extend
+   `internal/generator/evidence_embed.go::applyRequestEvidence` from
+   `overlayEvidenceBaseURLs` to an `overlayEvidenceRequestShape` pass
+   that repairs `Endpoint.BaseURL`, `Params`, `Body`,
+   `RequestContentType`, `HeaderOverrides`, defaults, and
+   auth-secret classifications from sidecar slots before
+   `buildPromotedCommandPlan`. Then strengthen
+   `internal/generator/validate_evidence.go::validateRequestEvidence`:
+   besides sidecar self-consistency, assert every non-volatile
+   evidence slot is represented in the rendered `APISpec` surface
+   and every volatile slot is absent. Missing `--channel` should
+   fail validation.
+
+4. Yes, reserved-name auto-rename should jump the queue. The existing
+   `internal/spec/spec.go::applyReservedResourceParentPrefixes`
+   handles parent-prefixable cases; add a deterministic fallback for
+   bare reserved resources before `validateReservedNames`, using
+   `ReservedCLIResourceNames` and a collision-aware `cache_resource`,
+   `cache_resource_2`, etc. Update resource references via
+   `rewriteResourceReferences`. This is not Slack-specific; it
+   removes a known parse-time dead end for fresh sniffed CLIs.
+
+5. PRs 7+ should be driven by live-output proof, not unit-level
+   scaffolding. Add a redacted Slack-shaped HAR fixture with
+   multipart `postData.params`, multi-host routing, volatile query
+   keys, and cookie auth; make `browser-sniff` golden assert body
+   params in `spec.yaml`; make generated-output tests compile and
+   inspect emitted flags. Also fix cookie-domain inference:
+   `internal/browsersniff/reachability.go::reachabilityCookieDomain`
+   and captured-auth domain handling should prefer the registrable
+   root via `publicsuffix.EffectiveTLDPlusOne`, so
+   `.edgeapi.slack.com` becomes `.slack.com`.
+================================================================
