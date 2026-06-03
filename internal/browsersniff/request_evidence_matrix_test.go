@@ -56,6 +56,10 @@ type ruleCase struct {
 	name          string
 	fixture       string
 	preserveHosts bool
+	// notes is a one-line summary of the edge case this row pins. Future
+	// readers should be able to scan the table and understand the
+	// motivation per fixture without rereading the body.
+	notes string
 	// wantAuthType pins APISpec.Auth.Type; empty skips the check.
 	wantAuthType string
 	// wantAuthHeader pins APISpec.Auth.Header; empty skips.
@@ -86,6 +90,7 @@ func TestRequestEvidenceMatrix(t *testing.T) {
 		{
 			name:             "slack: cookie session, multi-host, multipart bodies",
 			fixture:          "../../testdata/sniff/slack-redacted.har",
+			notes:            "cookie session, multipart, multi-host, path workspace IDs, xoxc tokens, volatile _x_b3_*",
 			preserveHosts:    true,
 			wantAuthType:     "cookie",
 			wantAuthHeader:   "Cookie",
@@ -117,6 +122,7 @@ func TestRequestEvidenceMatrix(t *testing.T) {
 		{
 			name:           "tickets: bearer JWT, single host, multipart bodies",
 			fixture:        "../../testdata/sniff/tickets-synthetic.har",
+			notes:          "non-Slack vocabulary safety; bearer JWT auth via Authorization header",
 			preserveHosts:  true,
 			wantAuthType:   "bearer_token",
 			wantAuthHeader: "Authorization",
@@ -137,6 +143,7 @@ func TestRequestEvidenceMatrix(t *testing.T) {
 		{
 			name:           "linear: GraphQL POST, JSON body, bearer auth, operation discrimination",
 			fixture:        "../../testdata/sniff/linear-graphql-synthetic.har",
+			notes:          "GraphQL POST, JSON body, single shared /graphql endpoint, per-operation routing",
 			preserveHosts:  true,
 			wantAuthType:   "bearer_token",
 			wantAuthHeader: "Authorization",
@@ -158,6 +165,7 @@ func TestRequestEvidenceMatrix(t *testing.T) {
 		{
 			name:    "datadog: composed-auth headers, regional host, JSON body, telemetry header",
 			fixture: "../../testdata/sniff/datadog-composed-synthetic.har",
+			notes:   "composed auth (DD-API-KEY + DD-APPLICATION-KEY), regional host, JSON body",
 			// Today single api_key auth is detected (DD-API-KEY). The
 			// composed second header (DD-APPLICATION-KEY) is captured as
 			// a slot but not promoted into AuthConfig — that's a known
@@ -182,6 +190,7 @@ func TestRequestEvidenceMatrix(t *testing.T) {
 		{
 			name:    "stripe: form-encoded body, Basic auth, per-request idempotency key",
 			fixture: "../../testdata/sniff/stripe-form-idempotency-synthetic.har",
+			notes:   "Basic auth, form body, Idempotency-Key (meaningful per-request header)",
 			// Today the auth detector returns "none" for the Basic header
 			// — IsAuthSecretValue only matches xoxc / JWT shapes. This is
 			// a known gap; future fix moves wantAuthType to "basic" or
@@ -205,6 +214,170 @@ func TestRequestEvidenceMatrix(t *testing.T) {
 				// classification claim in classifier_extensions_test.go
 				// changes.
 				{location: wireevidence.LocationHeader, name: "Idempotency-Key"},
+			},
+			minResources: 1,
+		},
+		{
+			name:          "shopify: per-tenant subdomain host, shpat_ token header",
+			fixture:       "../../testdata/sniff/shopify-tenant-subdomain-synthetic.har",
+			notes:         "tenant baked into subdomain (acme-store.myshopify.com); shpat_-prefixed token header",
+			preserveHosts: true,
+			// Today the X-Shopify-Access-Token header is not recognized by
+			// auth detection (no name pattern, value shape doesn't match
+			// xoxc/JWT). Auth resolves to "none". After PR 9 adds a name
+			// rule for `*-access-token` or a value-shape rule for `shpat_`,
+			// this row updates to bearer_token / api_key.
+			wantAuthType: "none",
+			wantEndpoints: []endpointAssertion{
+				// Path-derived resource name is `admin` (first significant
+				// path segment under /admin/api/2024-04/...). Two endpoints
+				// from one capture both land under it.
+				// Single-host capture: subdomain host becomes the spec
+				// default BaseURL, so per-endpoint BaseURL is empty.
+				// The host is asserted via the spec's BaseURL field
+				// implicitly (no second host competes for the slot).
+				{resource: "admin", method: "GET", path: "/admin/api/2024-04/orders.json"},
+				{resource: "admin", method: "POST", path: "/admin/api/2024-04/products.json"},
+			},
+			mustKeepSlots: []slotKey{
+				// Per-tenant subdomain host preserved verbatim in the
+				// evidence exemplars (asserted indirectly via baseURL on
+				// endpoints above). The token slot is captured today as
+				// semantic-default; mustKeepSlots only asserts it is NOT
+				// volatile-drop. The classifier extension test below pins
+				// the post-PR-9 desired class (auth-secret).
+				{location: wireevidence.LocationHeader, name: "X-Shopify-Access-Token"},
+			},
+			minResources: 1,
+		},
+		{
+			name:          "mediawiki: CSRF token in body, cookie session, action= query param",
+			fixture:       "../../testdata/sniff/mediawiki-csrf-synthetic.har",
+			notes:         "CSRF token in body (not header), multi-pair cookie session, stable action=/format= query",
+			preserveHosts: true,
+			// Cookie auth detected via the browser-clearance reachability
+			// promotion path (registrable cookie domain `.en.wikipedia.org`).
+			wantAuthType:     "cookie",
+			wantAuthHeader:   "Cookie",
+			wantAuthEnvVar:   "EN_WIKIPEDIA_COOKIES",
+			wantCookieDomain: ".en.wikipedia.org",
+			wantEndpoints: []endpointAssertion{
+				// Path is `/w/api.php` with `action=edit` query; the
+				// resource lands under `w` (first significant segment).
+				{resource: "w", method: "POST", path: "/w/api.php"},
+			},
+			mustKeepSlots: []slotKey{
+				// The body `token` field varies per session but is
+				// REQUIRED by MediaWiki — must never be volatile-drop.
+				// Today the classifier returns "unknown" (no rule
+				// matches `token`); the classifier extension test
+				// pins that this is acceptable (anything except
+				// volatile-drop is OK).
+				{location: wireevidence.LocationBodyForm, name: "token"},
+				// `action` is constant across exemplars → semantic-default.
+				{location: wireevidence.LocationQuery, name: "action"},
+				{location: wireevidence.LocationQuery, name: "format"},
+				{location: wireevidence.LocationHeader, name: "Cookie"},
+			},
+			minResources: 1,
+		},
+		{
+			name:          "github-rest: token-prefixed Authorization, vendor accept, conditional ETag",
+			fixture:       "../../testdata/sniff/github-rest-conditional-synthetic.har",
+			notes:         "GitHub `token <hex>` Authorization scheme, vnd.github.v3+json accept, If-None-Match conditional",
+			preserveHosts: true,
+			// detectAuth only matches `Bearer ` exactly; GitHub's
+			// `token ghp_...` form falls through to none today. After
+			// the auth-detector extension (see specgen_test gap), this
+			// row updates to bearer_token.
+			wantAuthType: "none",
+			wantEndpoints: []endpointAssertion{
+				// Both GETs share the `repos` resource (first significant
+				// segment of /repos/octocat/hello-world…).
+				{resource: "repos", method: "GET", path: "/repos/octocat/hello-world"},
+				{resource: "repos", method: "GET", path: "/repos/octocat/hello-world/pulls"},
+			},
+			mustKeepSlots: []slotKey{
+				// `Accept: application/vnd.github.v3+json` classifies as
+				// protocol-constant (Accept is in the protocol header set).
+				{location: wireevidence.LocationHeader, name: "Accept"},
+				// `If-None-Match` is user-meaningful (cache control). Today
+				// each endpoint group has one exemplar so the value is
+				// vacuously constant → semantic-default. The classifier
+				// extension test pins it must NEVER be volatile-drop even
+				// when values vary across exemplars.
+				{location: wireevidence.LocationHeader, name: "If-None-Match"},
+				// `Authorization` is captured but classified as
+				// semantic-default (constant) today; post-detector-fix it
+				// would be marked auth-secret.
+				{location: wireevidence.LocationHeader, name: "Authorization"},
+			},
+			minResources: 1,
+		},
+		{
+			name:          "sentry-dsn: public key embedded in URL userinfo segment",
+			fixture:       "../../testdata/sniff/sentry-dsn-auth-synthetic.har",
+			notes:         "auth-in-URL-userinfo (DSN public key); org/project IDs split across host/path",
+			preserveHosts: true,
+			// No Authorization header, no x-api-key. The DSN public key
+			// rides in the URL's userinfo segment — today nothing parses
+			// `url.User` into a slot, so the classifier never sees it.
+			// detectAuth resolves to none.
+			wantAuthType: "none",
+			wantEndpoints: []endpointAssertion{
+				// Path normalization collapses 789012 to {id} (long numeric
+				// segment treated as positional). Resource is `envelope`
+				// (last significant segment).
+				{resource: "envelope", method: "POST", path: "/api/{id}/envelope/"},
+			},
+			mustKeepSlots: []slotKey{
+				// Only the Content-Type / User-Agent headers reach the
+				// evidence sidecar today. The DSN public key in URL
+				// userinfo is NOT exposed as a slot — that's the gap.
+				// The classifier extension test (RUN_PIN_FAILS-gated)
+				// pins the future behavior: parse url.User and classify
+				// the userinfo as auth-secret.
+				{location: wireevidence.LocationHeader, name: "Content-Type"},
+			},
+			minResources: 1,
+		},
+		{
+			name:          "github-webhook: HMAC body signature header, per-delivery UUID",
+			fixture:       "../../testdata/sniff/github-webhook-hmac-synthetic.har",
+			notes:         "HMAC-SHA256 body signature in X-Hub-Signature-256; per-delivery UUID; non-reconstructable without body bytes",
+			preserveHosts: true,
+			// No standard auth header surface. The HMAC IS the auth
+			// proof, but only the receiver verifies it — emitters
+			// (the CLI replay use case) cannot regenerate it without
+			// the original body bytes + shared secret.
+			wantAuthType: "none",
+			wantEndpoints: []endpointAssertion{
+				// Receiver is a hypothetical webhooks.example endpoint.
+				// Resource is `github` (path segment after host).
+				{resource: "github", method: "POST", path: "/github"},
+			},
+			mustKeepSlots: []slotKey{
+				// X-GitHub-Event = `push` is constant → semantic-default
+				// (user-meaningful: identifies the webhook event type).
+				{location: wireevidence.LocationHeader, name: "X-GitHub-Event"},
+				// X-Hub-Signature-256 varies per request; today classifier
+				// returns `unknown` (no name pattern, no constant value).
+				// The classifier extension test pins it should be
+				// auth-secret (sha256=… value shape) AND ideally flagged
+				// non-reconstructable. mustKeepSlots only asserts the
+				// slot exists and is not volatile-drop; the desired class
+				// graduates from the extension test once PR 9 lands.
+				{location: wireevidence.LocationHeader, name: "X-Hub-Signature-256"},
+			},
+			mustDropSlots: []slotKey{
+				// X-GitHub-Delivery is a per-request UUID; today it lands
+				// as `unknown` (no name pattern). After PR 9 it becomes
+				// volatile-drop. mustDropSlots only fires if the slot is
+				// present with a non-volatile-drop class — today the slot
+				// IS present as `unknown`, so this assertion would fail
+				// pre-PR-9. The matrix only pins what's TRUE TODAY, so
+				// the assertion lives in the classifier extension test
+				// (RUN_PIN_FAILS-gated) rather than here.
 			},
 			minResources: 1,
 		},

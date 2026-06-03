@@ -149,4 +149,135 @@ func TestClassifySlot_RealAPIVocabulary(t *testing.T) {
 		assert.NotEqual(t, ClassVolatileDrop, class,
 			"next_cursor is Notion pagination; user-meaningful even when varying")
 	})
+
+	// --- wave 2 (more-oss-fixtures) ----------------------------------
+	// The following sub-tests pin classifier behavior surfaced by the
+	// Shopify, MediaWiki, GitHub REST, Sentry DSN, and GitHub-webhook
+	// fixtures. Each `skipUnlessRunPinFails` row documents a gap PR 9
+	// (or a future PR — Sentry DSN userinfo parsing is upstream of the
+	// classifier) still owes; the rest are regression guards that
+	// already pass today.
+
+	t.Run("IfNoneMatch_not_volatile_drop", func(t *testing.T) {
+		t.Parallel()
+		// If-None-Match is user-meaningful cache control. Like
+		// Idempotency-Key, it varies with cache state but the user
+		// controls it. Must NEVER be volatile-drop.
+		class, _ := ClassifySlot(LocationHeader, "If-None-Match",
+			[]string{"W/\"abc123\"", "W/\"def456\""})
+		assert.NotEqual(t, ClassVolatileDrop, class,
+			"If-None-Match is user-controlled cache validation; must not be volatile-drop")
+	})
+
+	t.Run("XHubSignature256_auth_secret", func(t *testing.T) {
+		skipUnlessRunPinFails(t, "PR 9", "classifier learns X-Hub-Signature-256 is auth-secret (HMAC body signature)")
+		t.Parallel()
+		// X-Hub-Signature-256 carries an HMAC of the body; even though
+		// the verifier (not the emitter) holds the secret, the value
+		// itself is secret-shaped and non-reconstructable from
+		// captured data. Replaying it verbatim against new body bytes
+		// is wrong; the classifier should flag it auth-secret AND
+		// (future) a non-reconstructable sub-class.
+		class, _ := ClassifySlot(LocationHeader, "X-Hub-Signature-256",
+			[]string{
+				"sha256=aaaabbbbccccddddeeeeffff0000111122223333444455556666777788889999",
+				"sha256=9999888877776666555544443333222211110000ffffeeeeddddccccbbbbaaaa",
+			})
+		assert.Equal(t, ClassAuthSecret, class,
+			"X-Hub-Signature-256 is an HMAC body signature; classify as auth-secret")
+	})
+
+	t.Run("XGitHubDelivery_volatile_drop", func(t *testing.T) {
+		skipUnlessRunPinFails(t, "PR 9", "classifier learns X-GitHub-Delivery is per-request UUID")
+		t.Parallel()
+		// X-GitHub-Delivery is GitHub's per-delivery UUID — every
+		// webhook delivery gets a fresh one. Must drop on replay.
+		class, _ := ClassifySlot(LocationHeader, "X-GitHub-Delivery",
+			[]string{
+				"00000000-0000-4000-8000-00000000aaa1",
+				"00000000-0000-4000-8000-00000000aaa2",
+			})
+		assert.Equal(t, ClassVolatileDrop, class,
+			"X-GitHub-Delivery is per-request UUID; must drop on replay")
+	})
+
+	t.Run("XShopifyAccessToken_auth_secret", func(t *testing.T) {
+		skipUnlessRunPinFails(t, "PR 9", "classifier learns X-Shopify-Access-Token / shpat_ prefix is auth-secret")
+		t.Parallel()
+		// X-Shopify-Access-Token is Shopify's per-store admin token.
+		// Today the classifier returns semantic-default (constant
+		// across exemplars). After PR 9, either a name rule
+		// (`*-access-token`) or a value-shape rule (`shpat_` prefix)
+		// should mark it auth-secret.
+		class, _ := ClassifySlot(LocationHeader, "X-Shopify-Access-Token",
+			[]string{"shpat_FAKE0000000000000000000000000000"})
+		assert.Equal(t, ClassAuthSecret, class,
+			"X-Shopify-Access-Token name+shpat_ prefix signals auth-secret")
+	})
+
+	t.Run("MediaWikiCSRFToken_not_volatile_drop", func(t *testing.T) {
+		t.Parallel()
+		// MediaWiki's body `token` field varies across sessions but
+		// is REQUIRED to send. Today the classifier returns "unknown"
+		// (varying values, no name rule). Anything except
+		// volatile-drop is acceptable — the user must supply it.
+		// Regression guard: passes today.
+		class, _ := ClassifySlot(LocationBodyForm, "token",
+			[]string{
+				"abcdef0123456789abcdef0123456789ABCD+\\",
+				"fedcba9876543210fedcba9876543210FEDC+\\",
+			})
+		assert.NotEqual(t, ClassVolatileDrop, class,
+			"MediaWiki CSRF token in body is required-but-varying; must not be volatile-drop")
+	})
+
+	t.Run("OAuthCode_auth_secret", func(t *testing.T) {
+		skipUnlessRunPinFails(t, "PR 9", "classifier learns OAuth `code` query param is auth-secret (one-time)")
+		t.Parallel()
+		// OAuth authorization codes are one-time-use bearer-like
+		// secrets. Embedding one in a generated CLI is dangerous;
+		// the classifier should mark it auth-secret (forcing redaction
+		// upstream) even though the param name is the bland `code`.
+		class, _ := ClassifySlot(LocationQuery, "code",
+			[]string{
+				"AUTHCODE_AAAAAAAAAAAAAAAAAAAAAAAA",
+				"AUTHCODE_BBBBBBBBBBBBBBBBBBBBBBBB",
+			})
+		assert.Equal(t, ClassAuthSecret, class,
+			"OAuth `code` query param is a one-time bearer secret")
+	})
+
+	t.Run("OAuthState_not_volatile_drop", func(t *testing.T) {
+		t.Parallel()
+		// OAuth `state` is the client's CSRF guard. The CLI use case
+		// would not typically replay it, but it is user-meaningful
+		// (not a tracing UUID the server invented). Today: unknown
+		// when varying, semantic-default when constant. Either is
+		// acceptable — only volatile-drop is wrong because it would
+		// silently strip a header the user might want to inspect.
+		// Two-exemplar constant case (typical of a single OAuth flow
+		// in the capture):
+		class, _ := ClassifySlot(LocationQuery, "state",
+			[]string{"csrfguardvaluexyz", "csrfguardvaluexyz"})
+		assert.NotEqual(t, ClassVolatileDrop, class,
+			"OAuth `state` is user-meaningful CSRF guard; not volatile")
+	})
+
+	t.Run("SentryDSNUserinfo_auth_secret", func(t *testing.T) {
+		skipUnlessRunPinFails(t, "PR 12 (URL-userinfo parsing)", "convertHAREntry/inferURLParams must surface url.User as a slot")
+		t.Parallel()
+		// Sentry DSNs embed a public key in the URL's userinfo
+		// segment (https://<32hex>@host/path). Today nothing parses
+		// url.User into the evidence model, so the classifier never
+		// sees it. The pin: once the userinfo IS surfaced as a slot
+		// (likely under a new Location value like LocationURLUserinfo),
+		// the 32-hex shape must be classified auth-secret. The location
+		// constant doesn't exist yet, so this test pins shape via the
+		// query location as a stand-in — the real test arrives with
+		// the parser extension.
+		class, _ := ClassifySlot(LocationQuery, "userinfo",
+			[]string{"abcdef0123456789abcdef0123456789"})
+		assert.Equal(t, ClassAuthSecret, class,
+			"32-hex DSN public key in URL userinfo is auth-secret")
+	})
 }
