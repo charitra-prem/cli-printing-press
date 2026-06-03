@@ -1512,3 +1512,31 @@ func TestAnalyzeCapture_QueryParamsKeepDefaultContentLocation(t *testing.T) {
 		}
 	}
 }
+
+// TestDetectAuth_GitHubTokenSchemeNotRecognized pins the current gap:
+// detectAuth's header-inference path only matches `Bearer <token>`
+// exactly. GitHub uses `Authorization: token ghp_<hex>` (its own
+// auth-scheme name), which falls through to type=none. Removing
+// the skip and updating the assertion to bearer_token is part of
+// the auth-detector extension that pairs with PR 9 vocabulary work.
+func TestDetectAuth_GitHubTokenSchemeNotRecognized(t *testing.T) {
+	t.Parallel()
+	if os.Getenv("RUN_PIN_FAILS") == "" {
+		t.Skip("PIN: blocked by auth-detector extension (GitHub `token <hex>` " +
+			"scheme not in detectAuthWithWarnings switch). Run with " +
+			"RUN_PIN_FAILS=1 to see the failing assertion.")
+	}
+
+	auth := detectAuth(nil, []EnrichedEntry{
+		{
+			RequestHeaders: map[string]string{"Authorization": "token ghp_FAKE000000000000000000000000000000000000"},
+		},
+	}, "github")
+
+	// Post-extension: GitHub's `token <hex>` should resolve to
+	// bearer_token (same surface, different scheme prefix). The
+	// current behavior is type=none, which this assertion catches.
+	assert.Equal(t, "bearer_token", auth.Type,
+		"GitHub `token <hex>` Authorization should be recognized as bearer auth")
+	assert.Equal(t, "Authorization", auth.Header)
+}
