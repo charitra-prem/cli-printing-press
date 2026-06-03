@@ -263,6 +263,121 @@ func TestClassifySlot_RealAPIVocabulary(t *testing.T) {
 			"OAuth `state` is user-meaningful CSRF guard; not volatile")
 	})
 
+	// --- wave 3 (wave3-oss-fixtures) --------------------------------
+	// The following sub-tests pin classifier behavior surfaced by the
+	// Discourse, GitLab, Twilio, Tailscale, and HomeAssistant fixtures.
+	// Findings (PR 9 input):
+	//   - PRIVATE-TOKEN: GitLab's per-user/group token header. Today
+	//     semantic-default; PR 9 should mark it auth-secret (name rule
+	//     for `private-token` or value-shape rule for `glpat-` prefix).
+	//   - Api-Key: Discourse uses the bare `Api-Key` header. Today
+	//     detectAuthWithWarnings does promote it to api_key AUTH, but
+	//     ClassifySlot still returns semantic-default for the value
+	//     itself — the classifier and the auth detector disagree.
+	//   - Api-Username: identity half of a dual-header scheme. Today
+	//     semantic-default (constant string). Documented choice: NOT
+	//     auth-secret (it's user-supplied identity, not a secret).
+	//   - tskey-api- prefix: Tailscale API key. Today semantic-default
+	//     (no value-shape rule). PR 9 needs a prefix rule.
+	//   - Authorization Basic <b64(AC<sid>:<token>)>: Twilio shape. The
+	//     SID prefix in the decoded username is a strong identity signal;
+	//     the password is the real secret. Today semantic-default
+	//     (Basic shape not recognized) — gap covered by the existing
+	//     AuthorizationBasic_auth_secret pin from wave 1.
+
+	t.Run("PrivateToken_auth_secret", func(t *testing.T) {
+		skipUnlessRunPinFails(t, "PR 9", "classifier learns PRIVATE-TOKEN / glpat- prefix is auth-secret")
+		t.Parallel()
+		// GitLab's PRIVATE-TOKEN header carries a Personal Access Token
+		// (glpat-...). Today: semantic-default (constant across
+		// exemplars, no name pattern). PR 9 should mark auth-secret via
+		// name rule (`private-token`) or value-shape (`glpat-` prefix).
+		class, _ := ClassifySlot(LocationHeader, "PRIVATE-TOKEN",
+			[]string{"glpat-FAKE000000000000000000"})
+		assert.Equal(t, ClassAuthSecret, class,
+			"PRIVATE-TOKEN with glpat- prefix is auth-secret")
+	})
+
+	t.Run("GLPATPrefix_auth_secret_anywhere", func(t *testing.T) {
+		skipUnlessRunPinFails(t, "PR 9", "IsAuthSecretValue learns glpat- prefix")
+		t.Parallel()
+		// A glpat- token might ride in a header named something other
+		// than PRIVATE-TOKEN (e.g. Authorization: Bearer glpat-...).
+		// Value-shape rule should fire regardless of name.
+		class, _ := ClassifySlot(LocationHeader, "X-Custom-Token",
+			[]string{"glpat-FAKE000000000000000000"})
+		assert.Equal(t, ClassAuthSecret, class,
+			"glpat- prefix in any header value signals auth-secret")
+	})
+
+	t.Run("DiscourseApiKey_auth_secret", func(t *testing.T) {
+		skipUnlessRunPinFails(t, "PR 9", "classifier learns Api-Key header is auth-secret (matches auth detector)")
+		t.Parallel()
+		// detectAuthWithWarnings already treats Api-Key as api_key auth
+		// (isStrongAuthHeaderName matches `api-key`). The classifier
+		// should agree and mark the VALUE auth-secret regardless of
+		// constancy.
+		class, _ := ClassifySlot(LocationHeader, "Api-Key",
+			[]string{"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"})
+		assert.Equal(t, ClassAuthSecret, class,
+			"Api-Key header value should classify auth-secret (auth detector already treats name as api_key)")
+	})
+
+	t.Run("DiscourseApiUsername_not_auth_secret", func(t *testing.T) {
+		t.Parallel()
+		// Documented choice: Api-Username is the IDENTITY half of
+		// Discourse's dual-header scheme. It is user-supplied, not a
+		// secret — embedding it in a generated CLI's defaults is
+		// acceptable (the SECRET half lives in Api-Key). Anything
+		// except auth-secret AND volatile-drop is fine today
+		// (semantic-default when constant, unknown when varying).
+		// Pin: NOT auth-secret. Regression guard passes today.
+		class, _ := ClassifySlot(LocationHeader, "Api-Username",
+			[]string{"discourse-admin-bot", "discourse-admin-bot"})
+		assert.NotEqual(t, ClassAuthSecret, class,
+			"Api-Username is user-supplied identity; treating it as a secret would force redaction of a user-meaningful value")
+		assert.NotEqual(t, ClassVolatileDrop, class,
+			"Api-Username is REQUIRED to send; dropping it breaks the request")
+	})
+
+	t.Run("TailscaleKeyPrefix_auth_secret", func(t *testing.T) {
+		skipUnlessRunPinFails(t, "PR 9", "IsAuthSecretValue learns tskey-api- prefix")
+		t.Parallel()
+		// Tailscale API tokens use the `tskey-api-` prefix
+		// (analogous to Slack's `xoxc-`). PR 9 should add a value-shape
+		// rule mirroring slackTokenPattern.
+		class, _ := ClassifySlot(LocationHeader, "Authorization",
+			[]string{"Bearer tskey-api-FAKE0000000000000000000000000000000000"})
+		assert.Equal(t, ClassAuthSecret, class,
+			"tskey-api- prefix signals auth-secret regardless of name")
+	})
+
+	t.Run("WebSocketUpgrade_not_volatile_drop", func(t *testing.T) {
+		t.Parallel()
+		// Upgrade / Connection / Sec-WebSocket-* are protocol-mandated
+		// for the WS handshake. Today none have classifier rules so
+		// constant values land as semantic-default. The invariant:
+		// these must NEVER be volatile-drop (the handshake breaks
+		// without them). A future "WebSocket recognition" PR might
+		// reclassify them as protocol-constant; either is acceptable.
+		class, _ := ClassifySlot(LocationHeader, "Upgrade",
+			[]string{"websocket", "websocket"})
+		assert.NotEqual(t, ClassVolatileDrop, class,
+			"Upgrade: websocket is part of the WS handshake; must not be volatile-drop")
+	})
+
+	t.Run("SecWebSocketKey_not_volatile_drop", func(t *testing.T) {
+		t.Parallel()
+		// Sec-WebSocket-Key is a client-generated nonce per handshake.
+		// It VARIES per connection but is REQUIRED — similar shape to
+		// MediaWiki CSRF or Idempotency-Key (varying-but-required).
+		// Pin: NOT volatile-drop (today: unknown when varying — OK).
+		class, _ := ClassifySlot(LocationHeader, "Sec-WebSocket-Key",
+			[]string{"dGhlIHNhbXBsZSBub25jZQ==", "another-fake-nonce-base64=="})
+		assert.NotEqual(t, ClassVolatileDrop, class,
+			"Sec-WebSocket-Key is required per-handshake; dropping it breaks the WS upgrade")
+	})
+
 	t.Run("SentryDSNUserinfo_auth_secret", func(t *testing.T) {
 		skipUnlessRunPinFails(t, "PR 12 (URL-userinfo parsing)", "convertHAREntry/inferURLParams must surface url.User as a slot")
 		t.Parallel()

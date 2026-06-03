@@ -381,6 +381,152 @@ func TestRequestEvidenceMatrix(t *testing.T) {
 			},
 			minResources: 1,
 		},
+		// --- wave 3 (wave3-oss-fixtures) ---------------------------------
+		{
+			name:          "discourse: dual-header auth (identity + secret)",
+			fixture:       "../../testdata/sniff/discourse-dual-header-synthetic.har",
+			notes:         "Api-Key (secret) + Api-Username (identity) — captureless detection picks Api-Key as api_key auth; identity header is not promoted but is preserved as a slot",
+			preserveHosts: true,
+			// Today detectAuthWithWarnings's isStrongAuthHeaderName matches
+			// `api-key` (the lowercased Api-Key header name) and produces
+			// api_key auth. Api-Username is captured as an ordinary slot
+			// but never promoted into AuthConfig — that's the gap this row
+			// pins. After a future "composed identity+secret" detector,
+			// Api-Username would surface as an Auth.Format component.
+			wantAuthType:   "api_key",
+			wantAuthHeader: "Api-Key",
+			wantAuthEnvVar: "META_DISCOURSE_API_KEY",
+			wantEndpoints: []endpointAssertion{
+				{resource: "admin", method: "GET", path: "/admin/users.json"},
+				{resource: "posts.json", method: "POST", path: "/posts.json"},
+			},
+			mustKeepSlots: []slotKey{
+				// Api-Key classifies as semantic-default today (constant
+				// across exemplars). The classifier extension test pins
+				// the post-PR-9 desired class (auth-secret).
+				{location: wireevidence.LocationHeader, name: "Api-Key"},
+				// Api-Username is the identity half; today semantic-default.
+				// mustKeepSlots only asserts it is NOT volatile-drop —
+				// the user-supplied identity must survive into the spec.
+				{location: wireevidence.LocationHeader, name: "Api-Username"},
+			},
+			minResources: 2,
+		},
+		{
+			name:          "gitlab: URL-encoded project path tenant (%2F embedded slash)",
+			fixture:       "../../testdata/sniff/gitlab-encoded-path-synthetic.har",
+			notes:         "tenant `<group>%2F<project>` encoded in a single path segment; today the press DECODES %2F into a literal `/`, splitting one segment into two — wire fidelity gap",
+			preserveHosts: true,
+			// PRIVATE-TOKEN is not in isStrongAuthHeaderName today, so
+			// detectAuth falls through to none. After the auth-detector
+			// extension (paired with PR 9), this would resolve to api_key.
+			wantAuthType: "none",
+			wantEndpoints: []endpointAssertion{
+				// %2F gets decoded — `acme-corp%2Fwidget-service` becomes
+				// `acme-corp/widget-service` in the normalized path. The
+				// resource lands under `projects` (first significant segment
+				// after /api/v4/). Pin the (incorrect) literal path so a
+				// future fix that preserves encoded slashes flips this row.
+				{resource: "projects", method: "GET", path: "/api/v4/projects/acme-corp/widget-service/repository/commits"},
+				{resource: "projects", method: "GET", path: "/api/v4/projects/acme-corp/widget-service/issues"},
+			},
+			mustKeepSlots: []slotKey{
+				// PRIVATE-TOKEN classifies as semantic-default today
+				// (constant). Classifier extension pins post-PR-9
+				// desired class (auth-secret via glpat- prefix or
+				// `private-token` name rule).
+				{location: wireevidence.LocationHeader, name: "PRIVATE-TOKEN"},
+				{location: wireevidence.LocationQuery, name: "per_page"},
+			},
+			minResources: 1,
+		},
+		{
+			name:          "twilio: Basic auth where username is Account SID (also in path)",
+			fixture:       "../../testdata/sniff/twilio-basic-sid-synthetic.har",
+			notes:         "Authorization: Basic base64(AC<sid>:<token>); Account SID repeated in path → today inferred as {account_id} path param",
+			preserveHosts: true,
+			// Basic auth not detected today (IsAuthSecretValue only
+			// matches xoxc/JWT). detectAuth falls through to none.
+			wantAuthType: "none",
+			wantEndpoints: []endpointAssertion{
+				// Path normalization promotes the 34-char AC<32-hex> SID
+				// to a {account_id} positional path param. Resource
+				// lands under `2010-04-01` (first significant segment).
+				{resource: "2010-04-01", method: "POST", path: "/2010-04-01/Accounts/{account_id}/Messages.json"},
+			},
+			mustKeepSlots: []slotKey{
+				// Authorization Basic value: today semantic-default
+				// (constant). Classifier extension pins auth-secret.
+				{location: wireevidence.LocationHeader, name: "Authorization"},
+				// Form body fields survive into the evidence sidecar.
+				{location: wireevidence.LocationBodyForm, name: "To"},
+				{location: wireevidence.LocationBodyForm, name: "From"},
+				// `Body` varies per exemplar so classifies as unknown
+				// (NOT volatile-drop) — user must supply.
+				{location: wireevidence.LocationBodyForm, name: "Body"},
+			},
+			minResources: 1,
+		},
+		{
+			name:           "tailscale: path-tenant identifier with bearer secret carried separately",
+			fixture:        "../../testdata/sniff/tailscale-path-tenant-synthetic.har",
+			notes:          "tailnet `acme.corp` is path-level identifier; today literal in path (not promoted to param); bearer carries the secret",
+			preserveHosts:  true,
+			wantAuthType:   "bearer_token",
+			wantAuthHeader: "Authorization",
+			wantAuthEnvVar: "TAILSCALE_TOKEN",
+			wantEndpoints: []endpointAssertion{
+				// Today the tailnet identifier is kept literal in the
+				// path — only one tenant value seen across exemplars,
+				// so the path-param inferrer has nothing to vary on.
+				// After a "single-value-but-known-tenant-shape"
+				// promotion (future PR), the path would become
+				// /api/v2/tailnet/{tailnet}/devices. Pin literal today.
+				{resource: "tailnet", method: "GET", path: "/api/v2/tailnet/acme.corp/devices"},
+				{resource: "tailnet", method: "GET", path: "/api/v2/tailnet/acme.corp/keys"},
+			},
+			mustKeepSlots: []slotKey{
+				// Authorization classifies as semantic-default today
+				// (`tskey-api-` prefix not recognized as secret-shape;
+				// no JWT/xoxc match). Classifier extension pins
+				// post-PR-9 auth-secret via tskey- prefix.
+				{location: wireevidence.LocationHeader, name: "Authorization"},
+			},
+			minResources: 1,
+		},
+		{
+			name:    "homeassistant: LAN http:// host + WebSocket-upgrade endpoint",
+			fixture: "../../testdata/sniff/homeassistant-lan-websocket-synthetic.har",
+			notes:   "http:// (not https), .local hostname with port, JWT bearer; WebSocket upgrade surfaces blindly as a plain GET endpoint (no awareness of the Upgrade handshake)",
+			// PreserveHosts off — single-host capture; the http:// scheme
+			// + port should be preserved on the spec-level BaseURL.
+			// JWT Bearer matches existing detectAuth/JWT pattern.
+			wantAuthType:   "bearer_token",
+			wantAuthHeader: "Authorization",
+			wantAuthEnvVar: "HOMEASSISTANT_TOKEN",
+			wantEndpoints: []endpointAssertion{
+				{resource: "states", method: "GET", path: "/api/states/sensor.temperature"},
+				// WebSocket upgrade surfaces as a plain GET — the press
+				// has zero awareness of the Upgrade handshake. The
+				// adversarial-style test in adversarial_test.go pins
+				// this gap separately; the matrix row just documents
+				// it surfaces at all.
+				{resource: "websocket", method: "GET", path: "/api/websocket"},
+			},
+			mustKeepSlots: []slotKey{
+				// JWT Authorization value matches the existing
+				// jwtPattern → classifies as auth-secret already.
+				{location: wireevidence.LocationHeader, name: "Authorization"},
+				// WebSocket-handshake headers (Upgrade, Connection,
+				// Sec-WebSocket-Key, Sec-WebSocket-Version) are captured
+				// as ordinary slots today — none have classifier rules.
+				// Pinning Upgrade so a future "WebSocket-handshake
+				// recognition" PR has a target slot to reclassify.
+				{location: wireevidence.LocationHeader, name: "Upgrade"},
+				{location: wireevidence.LocationHeader, name: "Sec-WebSocket-Key"},
+			},
+			minResources: 2,
+		},
 	}
 
 	for _, tc := range cases {

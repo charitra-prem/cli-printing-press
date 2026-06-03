@@ -1540,3 +1540,71 @@ func TestDetectAuth_GitHubTokenSchemeNotRecognized(t *testing.T) {
 		"GitHub `token <hex>` Authorization should be recognized as bearer auth")
 	assert.Equal(t, "Authorization", auth.Header)
 }
+
+// TestDetectAuth_GitLabPrivateTokenNotRecognized pins the current gap:
+// detectAuth's isStrongAuthHeaderName matches `api-key` / `api_key` /
+// `x-api-key` / `x-auth-token`, but NOT `private-token`. GitLab carries
+// its PAT in `PRIVATE-TOKEN: glpat-<hex>`, which falls through to
+// type=none today. The auth-detector extension paired with PR 9
+// vocabulary work should add `private-token` to the strong-header list,
+// resolving GitLab captures to api_key auth.
+func TestDetectAuth_GitLabPrivateTokenNotRecognized(t *testing.T) {
+	t.Parallel()
+	if os.Getenv("RUN_PIN_FAILS") == "" {
+		t.Skip("PIN: blocked by auth-detector extension (GitLab `PRIVATE-TOKEN` " +
+			"header not in isStrongAuthHeaderName). Run with " +
+			"RUN_PIN_FAILS=1 to see the failing assertion.")
+	}
+
+	auth := detectAuth(nil, []EnrichedEntry{
+		{
+			Method:         "GET",
+			URL:            "https://gitlab.com/api/v4/projects",
+			RequestHeaders: map[string]string{"PRIVATE-TOKEN": "glpat-FAKE000000000000000000"},
+		},
+	}, "gitlab")
+
+	// Post-extension: PRIVATE-TOKEN should resolve to api_key with
+	// header placement. Today it resolves to none.
+	assert.Equal(t, "api_key", auth.Type,
+		"GitLab PRIVATE-TOKEN header should be recognized as api_key auth")
+	assert.Equal(t, "PRIVATE-TOKEN", auth.Header)
+	assert.Equal(t, "header", auth.In)
+}
+
+// TestDetectAuth_TwilioBasicWithSIDNotRecognized pins the current gap:
+// detectAuth's header-inference path matches `Authorization: Bearer ...`
+// but not `Authorization: Basic <base64>`. Twilio captures carry
+// Basic auth where the decoded username is the AC-prefixed Account SID
+// (a public-ish identifier) and the password is the real Auth Token.
+// Today this falls through to type=none. A future Basic-auth recognition
+// path should resolve to `basic` (or whatever AuthType the codegen
+// picks) and surface the AC-prefix detection as a hint that the
+// "username" is a tenant identifier, not user credentials.
+func TestDetectAuth_TwilioBasicWithSIDNotRecognized(t *testing.T) {
+	t.Parallel()
+	if os.Getenv("RUN_PIN_FAILS") == "" {
+		t.Skip("PIN: blocked by auth-detector extension (Basic auth shape " +
+			"not in detectAuthWithWarnings switch). Run with " +
+			"RUN_PIN_FAILS=1 to see the failing assertion.")
+	}
+
+	auth := detectAuth(nil, []EnrichedEntry{
+		{
+			Method: "POST",
+			URL:    "https://api.twilio.com/2010-04-01/Accounts/ACfa000000000000000000000000000001/Messages.json",
+			RequestHeaders: map[string]string{
+				"Authorization": "Basic QUNmYTAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMTphdXRodG9rZW5mYWtlMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
+				"Content-Type":  "application/x-www-form-urlencoded",
+			},
+		},
+	}, "twilio")
+
+	// Post-extension: today the assertion is open about the chosen
+	// type because the auth-detector hasn't picked one yet — just
+	// require it's NOT "none" so a future implementation can pick
+	// "basic", "bearer_token", or a new "basic_with_tenant" type
+	// without rewriting the pin.
+	assert.NotEqual(t, "none", auth.Type,
+		"Twilio Basic auth with AC<sid>:<token> should be recognized as some non-none auth type")
+}

@@ -267,3 +267,132 @@ func TestAdversarial_EmptyBodyPost_NoInvention(t *testing.T) {
 	// Auth detection: Authorization: Bearer <jwt> → bearer_token.
 	assert.Equal(t, "bearer_token", result.apiSpec.Auth.Type)
 }
+
+// TestAdversarial_PaginationLinkHeader_NotAuth pins that an RFC 5988
+// `Link` response header (used for pagination by GitHub, GitLab,
+// JSON:API and friends) is captured without panic, that it does NOT
+// classify as auth-secret, and that the press makes zero inference
+// about the URLs embedded inside it (no extra endpoints surface from
+// parsing the `<...>; rel="next"` URLs). The press today doesn't model
+// pagination from response headers — pin the gap so a future
+// pagination-aware PR has a target.
+func TestAdversarial_PaginationLinkHeader_NotAuth(t *testing.T) {
+	t.Parallel()
+	_, result := loadAdversarialSpec(t, "pagination-link-header.har")
+
+	// At least one endpoint surfaces (the /v1/items GET). The Link
+	// header lives on the RESPONSE side and never reaches the
+	// request-evidence slot model — confirm no Link-named slot
+	// appears in the captured request evidence.
+	for _, ev := range result.evidence {
+		for _, slot := range ev.Slots {
+			if strings.EqualFold(slot.Name, "Link") {
+				assert.NotEqual(t, wireevidence.ClassAuthSecret, slot.Classification,
+					"Link header is RFC 5988 pagination, never auth-secret")
+			}
+		}
+	}
+
+	// Sanity: the spec doesn't invent extra endpoints from URLs
+	// embedded inside the Link header. We saw 2 request URLs (/v1/items
+	// with page=1 and page=2). The Link header references page=3 and
+	// page=5 — those must NOT show up as discovered endpoints.
+	endpointCount := 0
+	for _, resource := range result.apiSpec.Resources {
+		endpointCount += len(resource.Endpoints)
+	}
+	assert.LessOrEqual(t, endpointCount, 1,
+		"only the actually-requested endpoint should surface; Link header URLs must not invent extras")
+}
+
+// TestAdversarial_QueryBodyNameCollision_NoMerge pins that when the
+// same parameter name appears in both query AND body, the spec
+// preserves both as addressable distinct params. Merging them into a
+// single ambiguous flag would silently lose wire fidelity.
+func TestAdversarial_QueryBodyNameCollision_NoMerge(t *testing.T) {
+	t.Parallel()
+	_, result := loadAdversarialSpec(t, "query-body-name-collision.har")
+
+	// Find the /v1/items POST endpoint.
+	var hit *spec.Endpoint
+	for _, resource := range result.apiSpec.Resources {
+		for k := range resource.Endpoints {
+			ep := resource.Endpoints[k]
+			if strings.EqualFold(ep.Method, "POST") && strings.Contains(ep.Path, "/v1/items") {
+				hit = &ep
+				break
+			}
+		}
+	}
+	require.NotNil(t, hit, "POST /v1/items endpoint must surface")
+
+	// `id` must appear in BOTH Params (query) and Body — not merged
+	// into one. Track which sides we saw it on.
+	var sawQueryID, sawBodyID bool
+	for _, p := range hit.Params {
+		if strings.EqualFold(p.Name, "id") {
+			sawQueryID = true
+		}
+	}
+	for _, p := range hit.Body {
+		if strings.EqualFold(p.Name, "id") {
+			sawBodyID = true
+		}
+	}
+	assert.True(t, sawQueryID, "query `id` param must surface separately from body `id`")
+	assert.True(t, sawBodyID, "body `id` param must surface separately from query `id`")
+
+	// Also confirm the evidence sidecar carries both slots with
+	// distinct locations (the slot key is (location, name), so they
+	// CAN coexist — pin that they actually do).
+	require.Len(t, result.evidence, 1)
+	var queryIDSlot, bodyIDSlot wireevidence.Slot
+	for _, slot := range result.evidence[0].Slots {
+		if strings.EqualFold(slot.Name, "id") {
+			switch slot.Location {
+			case wireevidence.LocationQuery:
+				queryIDSlot = slot
+			case wireevidence.LocationBodyForm, "body_json":
+				bodyIDSlot = slot
+			}
+		}
+	}
+	// Body JSON fields don't always reach the slot model today
+	// (the parser only emits form/multipart slots) — accept either
+	// shape. The query slot MUST be present.
+	assert.NotEmpty(t, queryIDSlot.Name,
+		"query `id` slot must appear in evidence sidecar")
+	_ = bodyIDSlot // body slot is allowed-but-not-required today
+}
+
+// TestAdversarial_HEADRequest_SurfacedToday pins the current gap: HEAD
+// requests (typically used programmatically to check resource existence
+// or fetch headers without a body) surface as discoverable CLI endpoints
+// today. Like OPTIONS, they're rarely useful as user-facing commands.
+// This test asserts what's TRUE TODAY so a future "ignore HEAD/OPTIONS"
+// filter PR can flip it.
+func TestAdversarial_HEADRequest_SurfacedToday(t *testing.T) {
+	t.Parallel()
+	_, result := loadAdversarialSpec(t, "head-discovery-request.har")
+
+	var sawHEAD bool
+	for _, resource := range result.apiSpec.Resources {
+		for _, ep := range resource.Endpoints {
+			if strings.EqualFold(ep.Method, "HEAD") {
+				sawHEAD = true
+			}
+		}
+	}
+
+	if os.Getenv("RUN_PIN_FAILS") == "" {
+		// Default: assert what's TRUE TODAY (regression guard for
+		// the current behavior; flips when the HEAD filter lands).
+		assert.True(t, sawHEAD,
+			"HEAD requests surface as CLI-generatable endpoints today; "+
+				"this assertion graduates to assert.False once HEAD/OPTIONS filtering lands")
+		return
+	}
+	// RUN_PIN_FAILS=1: assert the desired post-fix behavior.
+	assert.False(t, sawHEAD,
+		"HEAD is a programmatic check method; must not generate a CLI command")
+}
