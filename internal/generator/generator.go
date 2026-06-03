@@ -141,6 +141,15 @@ type Generator struct {
 	CatalogEntryDescription string
 	AsyncJobs               map[string]AsyncJobInfo // Detected async-job endpoints, keyed by "<resource>/<endpoint>"
 
+	// RequestEvidencePath points at the on-disk *-request-evidence.json
+	// sidecar emitted by browser-sniff. The generator loads it during
+	// Generate(), overlays per-endpoint BaseURLs from the evidence, and
+	// emits a sanitized copy as a Go []byte literal at
+	// internal/client/request_evidence.gen.go. Empty for non-sniffed
+	// sources; absent files are silently skipped so the field is safe to
+	// always set from the CLI.
+	RequestEvidencePath string
+
 	// ModulePath overrides the Go module import path emitted by templates that
 	// reference internal packages (`{{modulePath}}/internal/client`, etc.).
 	// Defaults to `<api>-pp-cli` when empty — matches the standalone-publish
@@ -2258,6 +2267,17 @@ func (g *Generator) Generate() error {
 		g.Spec.HealthCheckPath = deriveHealthCheckPath(g.Spec)
 	}
 	if err := g.prepareOutput(); err != nil {
+		return err
+	}
+
+	// Request-evidence sidecar consumption (PR 5). When the CLI is sniffed
+	// and a sibling *-request-evidence.json file exists, overlay every
+	// matched endpoint's BaseURL with the captured host (so a multi-host
+	// capture routes per-endpoint without --preserve-hosts having to fire
+	// again at print time) and emit a sanitized copy of the JSON alongside
+	// the generated client. Non-sniffed sources and missing sidecars
+	// short-circuit so byte-identical generation is preserved.
+	if err := g.applyRequestEvidence(); err != nil {
 		return err
 	}
 
