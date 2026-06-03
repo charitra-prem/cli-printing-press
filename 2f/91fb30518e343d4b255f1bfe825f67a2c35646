@@ -1,0 +1,21 @@
+testdata/golden/expected/browser-sniff-sample/stdout.txt
+  s_83e2011e9d98a6::t_16b3ff6193bf63 3
+testdata/golden/expected/browser-sniff-sample/spec-request-evidence.json
+  s_83e2011e9d98a6::t_16b3ff6193bf63 1-191
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2f91fb30518e343d4b255f1bfe825f67a2c35646",
+  "prompts": {},
+  "sessions": {
+    "s_83e2011e9d98a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b448205b-83ea-4c8f-82e3-2ff83369d690",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "charitra-prem <charitra@premai.io>"
+    }
+  }
+}
