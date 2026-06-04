@@ -63,7 +63,6 @@ func loadSlackRedactedSpec(t *testing.T) *spec.APISpec {
 // because parser.go::convertHAREntry doesn't synthesize RequestBody
 // from HAR postData.text on the live HAR path.
 func TestPin_PR7_BodyFieldsProjectedFromMultipartHARPath(t *testing.T) {
-	skipUnlessRunPinFails(t, "PR 7", "body-field projection through HAR path")
 	t.Parallel()
 
 	apiSpec := loadSlackRedactedSpec(t)
@@ -289,7 +288,6 @@ func TestPin_PR10_Safety_AlreadyRegistrableRootIsNoop(t *testing.T) {
 // shapes too. Today both fixtures' body fields don't reach Endpoint.Body
 // via the HAR path; PR 7 must fix both.
 func TestPin_PR7_Safety_SyntheticBodyAlsoProjected(t *testing.T) {
-	skipUnlessRunPinFails(t, "PR 7 (safety)", "synthetic multipart body also projected")
 	t.Parallel()
 
 	apiSpec := loadTicketsSyntheticSpec(t)
