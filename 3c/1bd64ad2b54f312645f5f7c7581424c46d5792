@@ -1,0 +1,23 @@
+internal/browsersniff/specgen.go
+  s_83e2011e9d98a6::t_177a85fda2f25e 971-988
+  s_83e2011e9d98a6::t_8aaf74d5ad839a 636-638
+internal/spec/spec.go
+  s_83e2011e9d98a6::t_9717ae5f0abb67 1997-2003
+  s_83e2011e9d98a6::t_6ecc5b497ca1c4 2234-2243
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3c1bd64ad2b54f312645f5f7c7581424c46d5792",
+  "prompts": {},
+  "sessions": {
+    "s_83e2011e9d98a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b448205b-83ea-4c8f-82e3-2ff83369d690",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "charitra-prem <charitra@premai.io>"
+    }
+  }
+}
