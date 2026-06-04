@@ -1,0 +1,21 @@
+internal/wireevidence/classifier_extensions_test.go
+  s_83e2011e9d98a6::t_a32b2eb4758711 368-372
+internal/wireevidence/classifier.go
+  s_83e2011e9d98a6::t_40952aa741e4ec 23-36,53-76,83-106,109-117,123-141,166-201,206-214,216,222-227,237-258
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d134be38d74c2abfda74ca8ee13f6a031187b1d4",
+  "prompts": {},
+  "sessions": {
+    "s_83e2011e9d98a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b448205b-83ea-4c8f-82e3-2ff83369d690",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "charitra-prem <charitra@premai.io>"
+    }
+  }
+}
