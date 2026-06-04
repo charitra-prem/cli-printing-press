@@ -102,7 +102,6 @@ func TestPin_PR7_BodyFieldsProjectedFromMultipartHARPath(t *testing.T) {
 // spec.applyReservedResourceParentPrefixes should handle bare reserved
 // resources as a fallback before validateReservedNames.
 func TestPin_PR8_ReservedCacheResourceAutoRenamed(t *testing.T) {
-	skipUnlessRunPinFails(t, "PR 8", "reserved-name auto-rename")
 	t.Parallel()
 
 	apiSpec := loadSlackRedactedSpec(t)
