@@ -330,13 +330,11 @@ func TestRequestEvidenceMatrix(t *testing.T) {
 				{resource: "envelope", method: "POST", path: "/api/{id}/envelope/"},
 			},
 			mustKeepSlots: []slotKey{
-				// Only the Content-Type / User-Agent headers reach the
-				// evidence sidecar today. The DSN public key in URL
-				// userinfo is NOT exposed as a slot — that's the gap.
-				// The classifier extension test (RUN_PIN_FAILS-gated)
-				// pins the future behavior: parse url.User and classify
-				// the userinfo as auth-secret.
+				// Content-Type / User-Agent headers reach the evidence
+				// sidecar; the DSN public key is now also surfaced via
+				// LocationURLUserinfo and classified auth-secret.
 				{location: wireevidence.LocationHeader, name: "Content-Type"},
+				{location: wireevidence.LocationURLUserinfo, name: "userinfo"},
 			},
 			minResources: 1,
 		},
