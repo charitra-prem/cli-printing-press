@@ -1,0 +1,29 @@
+internal/spec/spec_test.go
+  s_83e2011e9d98a6::t_ce88180ba1ebdd 4489,4491-4495,4514-4519
+  s_83e2011e9d98a6::t_723013ae1ba121 4522,4524-4528,4543-4546
+  s_83e2011e9d98a6::t_db58892340486e 4363,4367-4371,4386-4390
+  s_83e2011e9d98a6::t_59ceda13218d05 4417,4419-4422,4437-4441
+  s_83e2011e9d98a6::t_85d4e4c748dd6e 4393,4402,4409-4414
+internal/browsersniff/request_evidence_matrix_test.go
+  s_83e2011e9d98a6::t_d1f292f686c4f9 100-101,103
+internal/spec/spec.go
+  s_83e2011e9d98a6::t_de1dded493e576 3658-3664
+  s_83e2011e9d98a6::t_3a37a8772c52be 2675
+  s_83e2011e9d98a6::t_8604d220e48036 2863-2922
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "525305e0eac3f00c9d32591a3a05fa36e7d9c3d0",
+  "prompts": {},
+  "sessions": {
+    "s_83e2011e9d98a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b448205b-83ea-4c8f-82e3-2ff83369d690",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "charitra-prem <charitra@premai.io>"
+    }
+  }
+}
