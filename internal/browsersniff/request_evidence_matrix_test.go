@@ -412,20 +412,18 @@ func TestRequestEvidenceMatrix(t *testing.T) {
 		{
 			name:          "gitlab: URL-encoded project path tenant (%2F embedded slash)",
 			fixture:       "../../testdata/sniff/gitlab-encoded-path-synthetic.har",
-			notes:         "tenant `<group>%2F<project>` encoded in a single path segment; today the press DECODES %2F into a literal `/`, splitting one segment into two — wire fidelity gap",
+			notes:         "tenant `<group>%2F<project>` encoded in a single path segment; the press now preserves the encoded form via url.URL.RawPath",
 			preserveHosts: true,
 			// PRIVATE-TOKEN added to isStrongAuthHeaderName; GitLab PAT
 			// captures resolve to api_key with header placement.
 			wantAuthType:   "api_key",
 			wantAuthHeader: "PRIVATE-TOKEN",
 			wantEndpoints: []endpointAssertion{
-				// %2F gets decoded — `acme-corp%2Fwidget-service` becomes
-				// `acme-corp/widget-service` in the normalized path. The
-				// resource lands under `projects` (first significant segment
-				// after /api/v4/). Pin the (incorrect) literal path so a
-				// future fix that preserves encoded slashes flips this row.
-				{resource: "projects", method: "GET", path: "/api/v4/projects/acme-corp/widget-service/repository/commits"},
-				{resource: "projects", method: "GET", path: "/api/v4/projects/acme-corp/widget-service/issues"},
+				// %2F now stays encoded so the tenant segment travels as
+				// one piece end-to-end and endpoint matching is faithful
+				// to the captured wire.
+				{resource: "projects", method: "GET", path: "/api/v4/projects/acme-corp%2Fwidget-service/repository/commits"},
+				{resource: "projects", method: "GET", path: "/api/v4/projects/acme-corp%2Fwidget-service/issues"},
 			},
 			mustKeepSlots: []slotKey{
 				// PRIVATE-TOKEN classifies as semantic-default today
