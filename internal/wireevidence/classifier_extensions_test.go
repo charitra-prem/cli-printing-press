@@ -71,7 +71,6 @@ func TestClassifySlot_RealAPIVocabulary(t *testing.T) {
 	})
 
 	t.Run("NotionVersion_semantic_default", func(t *testing.T) {
-		skipUnlessRunPinFails(t, "PR 9", "classifier extends to Notion-Version header")
 		t.Parallel()
 		class, constant := ClassifySlot(LocationHeader, "Notion-Version",
 			[]string{"2022-06-28", "2022-06-28"})
@@ -81,7 +80,6 @@ func TestClassifySlot_RealAPIVocabulary(t *testing.T) {
 	})
 
 	t.Run("DDAPIKey_auth_secret", func(t *testing.T) {
-		skipUnlessRunPinFails(t, "PR 9", "classifier learns DD-API-KEY/DD-APPLICATION-KEY are auth-secret")
 		t.Parallel()
 		class, _ := ClassifySlot(LocationHeader, "DD-API-KEY",
 			[]string{"FAKE_DD_API_KEY_0000000000000000"})
@@ -90,7 +88,6 @@ func TestClassifySlot_RealAPIVocabulary(t *testing.T) {
 	})
 
 	t.Run("DDApplicationKey_auth_secret", func(t *testing.T) {
-		skipUnlessRunPinFails(t, "PR 9", "classifier learns DD-APPLICATION-KEY is auth-secret")
 		t.Parallel()
 		class, _ := ClassifySlot(LocationHeader, "DD-APPLICATION-KEY",
 			[]string{"FAKE_DD_APP_KEY_00000000000000000000000000000000"})
@@ -99,7 +96,6 @@ func TestClassifySlot_RealAPIVocabulary(t *testing.T) {
 	})
 
 	t.Run("AuthorizationBasic_auth_secret", func(t *testing.T) {
-		skipUnlessRunPinFails(t, "PR 9", "IsAuthSecretValue learns Basic <base64> shape")
 		t.Parallel()
 		class, _ := ClassifySlot(LocationHeader, "Authorization",
 			[]string{"Basic c2tfdGVzdF9GQUtFMDAwMDAwMDAwMDAwMDAwMDA6"})
@@ -108,7 +104,6 @@ func TestClassifySlot_RealAPIVocabulary(t *testing.T) {
 	})
 
 	t.Run("DDRequestId_volatile_drop", func(t *testing.T) {
-		skipUnlessRunPinFails(t, "PR 9", "classifier learns dd-request-id name pattern")
 		t.Parallel()
 		class, _ := ClassifySlot(LocationHeader, "dd-request-id",
 			[]string{"req-abc-001", "req-abc-002"})
@@ -117,7 +112,6 @@ func TestClassifySlot_RealAPIVocabulary(t *testing.T) {
 	})
 
 	t.Run("CSRFToken_documented_choice", func(t *testing.T) {
-		skipUnlessRunPinFails(t, "PR 9", "classifier picks a class for X-CSRF-Token")
 		t.Parallel()
 		// X-CSRF-Token is the tricky one: it varies across sessions but
 		// is REQUIRED to send. Marking volatile-drop would strip a
@@ -170,7 +164,6 @@ func TestClassifySlot_RealAPIVocabulary(t *testing.T) {
 	})
 
 	t.Run("XHubSignature256_auth_secret", func(t *testing.T) {
-		skipUnlessRunPinFails(t, "PR 9", "classifier learns X-Hub-Signature-256 is auth-secret (HMAC body signature)")
 		t.Parallel()
 		// X-Hub-Signature-256 carries an HMAC of the body; even though
 		// the verifier (not the emitter) holds the secret, the value
@@ -188,7 +181,6 @@ func TestClassifySlot_RealAPIVocabulary(t *testing.T) {
 	})
 
 	t.Run("XGitHubDelivery_volatile_drop", func(t *testing.T) {
-		skipUnlessRunPinFails(t, "PR 9", "classifier learns X-GitHub-Delivery is per-request UUID")
 		t.Parallel()
 		// X-GitHub-Delivery is GitHub's per-delivery UUID — every
 		// webhook delivery gets a fresh one. Must drop on replay.
@@ -202,7 +194,6 @@ func TestClassifySlot_RealAPIVocabulary(t *testing.T) {
 	})
 
 	t.Run("XShopifyAccessToken_auth_secret", func(t *testing.T) {
-		skipUnlessRunPinFails(t, "PR 9", "classifier learns X-Shopify-Access-Token / shpat_ prefix is auth-secret")
 		t.Parallel()
 		// X-Shopify-Access-Token is Shopify's per-store admin token.
 		// Today the classifier returns semantic-default (constant
@@ -232,7 +223,6 @@ func TestClassifySlot_RealAPIVocabulary(t *testing.T) {
 	})
 
 	t.Run("OAuthCode_auth_secret", func(t *testing.T) {
-		skipUnlessRunPinFails(t, "PR 9", "classifier learns OAuth `code` query param is auth-secret (one-time)")
 		t.Parallel()
 		// OAuth authorization codes are one-time-use bearer-like
 		// secrets. Embedding one in a generated CLI is dangerous;
@@ -286,7 +276,6 @@ func TestClassifySlot_RealAPIVocabulary(t *testing.T) {
 	//     AuthorizationBasic_auth_secret pin from wave 1.
 
 	t.Run("PrivateToken_auth_secret", func(t *testing.T) {
-		skipUnlessRunPinFails(t, "PR 9", "classifier learns PRIVATE-TOKEN / glpat- prefix is auth-secret")
 		t.Parallel()
 		// GitLab's PRIVATE-TOKEN header carries a Personal Access Token
 		// (glpat-...). Today: semantic-default (constant across
@@ -299,7 +288,6 @@ func TestClassifySlot_RealAPIVocabulary(t *testing.T) {
 	})
 
 	t.Run("GLPATPrefix_auth_secret_anywhere", func(t *testing.T) {
-		skipUnlessRunPinFails(t, "PR 9", "IsAuthSecretValue learns glpat- prefix")
 		t.Parallel()
 		// A glpat- token might ride in a header named something other
 		// than PRIVATE-TOKEN (e.g. Authorization: Bearer glpat-...).
@@ -311,7 +299,6 @@ func TestClassifySlot_RealAPIVocabulary(t *testing.T) {
 	})
 
 	t.Run("DiscourseApiKey_auth_secret", func(t *testing.T) {
-		skipUnlessRunPinFails(t, "PR 9", "classifier learns Api-Key header is auth-secret (matches auth detector)")
 		t.Parallel()
 		// detectAuthWithWarnings already treats Api-Key as api_key auth
 		// (isStrongAuthHeaderName matches `api-key`). The classifier
@@ -341,7 +328,6 @@ func TestClassifySlot_RealAPIVocabulary(t *testing.T) {
 	})
 
 	t.Run("TailscaleKeyPrefix_auth_secret", func(t *testing.T) {
-		skipUnlessRunPinFails(t, "PR 9", "IsAuthSecretValue learns tskey-api- prefix")
 		t.Parallel()
 		// Tailscale API tokens use the `tskey-api-` prefix
 		// (analogous to Slack's `xoxc-`). PR 9 should add a value-shape
@@ -379,6 +365,11 @@ func TestClassifySlot_RealAPIVocabulary(t *testing.T) {
 	})
 
 	t.Run("SentryDSNUserinfo_auth_secret", func(t *testing.T) {
+		// Still gated after PR 9 classifier extension: a bare 32-hex value-shape
+		// rule would over-match (UUID-without-dashes, MD5 digests in cache
+		// headers, ...). The right fix lives upstream -- once the parser surfaces
+		// URL userinfo as its own slot (LocationURLUserinfo), the classifier can
+		// pattern-match on that location+shape pair.
 		skipUnlessRunPinFails(t, "PR 12 (URL-userinfo parsing)", "convertHAREntry/inferURLParams must surface url.User as a slot")
 		t.Parallel()
 		// Sentry DSNs embed a public key in the URL's userinfo
