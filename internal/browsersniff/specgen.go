@@ -633,6 +633,9 @@ func buildEndpoint(group EndpointGroup, auth spec.AuthConfig) (spec.Endpoint, []
 			Item: deriveResponseItemName(group.NormalizedPath),
 		},
 	}
+	if groupLooksWebSocket(group) {
+		endpoint.Kind = spec.EndpointKindWebSocket
+	}
 	if groupLooksHTML(group) {
 		endpoint.ResponseFormat = spec.ResponseFormatHTML
 		endpoint.Response = spec.ResponseDef{
@@ -963,6 +966,24 @@ func htmlSlugSegment(segment string) bool {
 		return false
 	}
 	return true
+}
+
+// groupLooksWebSocket reports whether any entry in the group carries a
+// WebSocket-upgrade handshake (`Upgrade: websocket` header) or rides a
+// ws:// / wss:// scheme. The capture surfaces such endpoints as a plain
+// GET — this signal lets buildEndpoint mark them with Endpoint.Kind so
+// downstream codegen treats them differently.
+func groupLooksWebSocket(group EndpointGroup) bool {
+	for _, entry := range group.Entries {
+		if strings.EqualFold(strings.TrimSpace(getHeaderValue(entry.RequestHeaders, "Upgrade")), "websocket") {
+			return true
+		}
+		lower := strings.ToLower(strings.TrimSpace(entry.URL))
+		if strings.HasPrefix(lower, "ws://") || strings.HasPrefix(lower, "wss://") {
+			return true
+		}
+	}
+	return false
 }
 
 func groupLooksHTML(group EndpointGroup) bool {
