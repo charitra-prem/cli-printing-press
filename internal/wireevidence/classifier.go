@@ -238,6 +238,15 @@ func ClassifySlot(location, name string, values []string) (class string, constan
 		return ClassAuthSecret, constant
 	}
 
+	// URL userinfo (e.g. Sentry DSN public key in
+	// `https://<32hex>@host/...`) is always a credential by construction
+	// — no legitimate non-secret use case for embedding a value in the
+	// URL's user[:password]@ segment. Classify unconditionally so the
+	// generator forces it to an env-var-backed slot.
+	if location == LocationURLUserinfo {
+		return ClassAuthSecret, constant
+	}
+
 	if location == LocationHeader {
 		lowerName := strings.ToLower(strings.TrimSpace(name))
 		if hexAuthHeaderNames[lowerName] && len(values) > 0 {
@@ -311,6 +320,9 @@ func BuildSlots(exemplars []Exemplar) []Slot {
 		}
 		for n, v := range ex.BodyMulti {
 			add(LocationBodyMulti, n, v)
+		}
+		if ex.URLUserinfo != "" {
+			add(LocationURLUserinfo, "userinfo", ex.URLUserinfo)
 		}
 	}
 

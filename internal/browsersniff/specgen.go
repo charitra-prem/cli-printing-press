@@ -15,6 +15,7 @@ import (
 	"github.com/mvanhorn/cli-printing-press/v4/internal/discovery"
 	"github.com/mvanhorn/cli-printing-press/v4/internal/naming"
 	"github.com/mvanhorn/cli-printing-press/v4/internal/spec"
+	"golang.org/x/net/publicsuffix"
 	"gopkg.in/yaml.v3"
 )
 
@@ -632,6 +633,9 @@ func buildEndpoint(group EndpointGroup, auth spec.AuthConfig) (spec.Endpoint, []
 			Item: deriveResponseItemName(group.NormalizedPath),
 		},
 	}
+	if groupLooksWebSocket(group) {
+		endpoint.Kind = spec.EndpointKindWebSocket
+	}
 	if groupLooksHTML(group) {
 		endpoint.ResponseFormat = spec.ResponseFormatHTML
 		endpoint.Response = spec.ResponseDef{
@@ -964,6 +968,24 @@ func htmlSlugSegment(segment string) bool {
 	return true
 }
 
+// groupLooksWebSocket reports whether any entry in the group carries a
+// WebSocket-upgrade handshake (`Upgrade: websocket` header) or rides a
+// ws:// / wss:// scheme. The capture surfaces such endpoints as a plain
+// GET — this signal lets buildEndpoint mark them with Endpoint.Kind so
+// downstream codegen treats them differently.
+func groupLooksWebSocket(group EndpointGroup) bool {
+	for _, entry := range group.Entries {
+		if strings.EqualFold(strings.TrimSpace(getHeaderValue(entry.RequestHeaders, "Upgrade")), "websocket") {
+			return true
+		}
+		lower := strings.ToLower(strings.TrimSpace(entry.URL))
+		if strings.HasPrefix(lower, "ws://") || strings.HasPrefix(lower, "wss://") {
+			return true
+		}
+	}
+	return false
+}
+
 func groupLooksHTML(group EndpointGroup) bool {
 	for _, entry := range group.Entries {
 		if strings.Contains(strings.ToLower(entry.ResponseContentType), "html") {
@@ -1273,7 +1295,7 @@ func detectAuthWithWarnings(capture *EnrichedCapture, entries []EnrichedEntry, n
 		for headerName, value := range entry.RequestHeaders {
 			lowerHeader := strings.ToLower(headerName)
 			switch {
-			case strings.EqualFold(headerName, "Authorization") && strings.HasPrefix(strings.TrimSpace(value), "Bearer "):
+			case strings.EqualFold(headerName, "Authorization") && authorizationBearerLike(value):
 				auth := spec.AuthConfig{
 					Type:    spec.TierAuthTypeBearerToken,
 					Header:  "Authorization",
@@ -1284,6 +1306,16 @@ func detectAuthWithWarnings(capture *EnrichedCapture, entries []EnrichedEntry, n
 				}
 				if bearerAuth.Type == "" {
 					bearerAuth = auth
+				}
+			case strings.EqualFold(headerName, "Authorization") && authorizationBasicLike(value):
+				if headerAPIKeyAuth.Type == "" {
+					headerAPIKeyAuth = spec.AuthConfig{
+						Type:    spec.TierAuthTypeAPIKey,
+						Header:  "Authorization",
+						In:      "header",
+						Format:  "Basic {token}",
+						EnvVars: envVarsOrNil(envPrefix, "API_KEY"),
+					}
 				}
 			case isStrongAuthHeaderName(lowerHeader):
 				if headerAPIKeyAuth.Type == "" {
@@ -1343,6 +1375,7 @@ func detectAuthWithWarnings(capture *EnrichedCapture, entries []EnrichedEntry, n
 		return bearerAuth, sortedBoolKeys(rejectedWarnings)
 	}
 	if headerAPIKeyAuth.Type != "" {
+		headerAPIKeyAuth.AdditionalHeaders = inferIdentityCompanions(entries, headerAPIKeyAuth.Header, envPrefix)
 		return headerAPIKeyAuth, sortedBoolKeys(rejectedWarnings)
 	}
 	if strongQueryAuth.Type != "" {
@@ -1370,13 +1403,99 @@ func detectAuthWithWarnings(capture *EnrichedCapture, entries []EnrichedEntry, n
 	return spec.AuthConfig{Type: spec.TierAuthTypeNone}, sortedBoolKeys(rejectedWarnings)
 }
 
+// identityCompanionHeaderNames maps an api-key header name (lowercased)
+// to a peer header that names the calling identity. Discourse's
+// `Api-Username` is the canonical example: the api_key authenticates
+// the workspace, the username identifies which user the request runs
+// as. The companion is NOT a secret — both halves are required, but
+// the operator supplies them via separate env vars and the identity
+// half can safely appear in logs.
+var identityCompanionHeaderNames = map[string]string{
+	"api-key": "Api-Username",
+}
+
+// inferIdentityCompanions returns AdditionalHeaders entries for non-
+// secret identity peers of the winning api-key header. Empty when no
+// peer is recognized or the peer header never appears in the capture.
+// The returned env vars are marked Sensitive=false so codegen / docs
+// can distinguish them from the primary auth secret.
+func inferIdentityCompanions(entries []EnrichedEntry, winningHeader, envPrefix string) []spec.AdditionalAuthHeader {
+	companion, ok := identityCompanionHeaderNames[strings.ToLower(strings.TrimSpace(winningHeader))]
+	if !ok {
+		return nil
+	}
+	for _, entry := range entries {
+		if getHeaderValue(entry.RequestHeaders, companion) == "" {
+			continue
+		}
+		envName := strings.ToUpper(strings.ReplaceAll(companion, "-", "_"))
+		if envPrefix != "" {
+			envName = envPrefix + "_" + envName
+		}
+		return []spec.AdditionalAuthHeader{{
+			Header: companion,
+			In:     "header",
+			EnvVar: spec.AuthEnvVar{
+				Name:      envName,
+				Kind:      spec.AuthEnvVarKindPerCall,
+				Required:  true,
+				Sensitive: false,
+			},
+		}}
+	}
+	return nil
+}
+
 func isStrongAuthHeaderName(lowerName string) bool {
 	switch lowerName {
-	case "x-api-key", "x_api_key", "api-key", "api_key", "x-auth-token":
+	case "x-api-key", "x_api_key", "api-key", "api_key", "x-auth-token",
+		// PRIVATE-TOKEN is GitLab's Personal Access Token header; the
+		// value is the secret itself (no scheme prefix).
+		"private-token",
+		// X-Shopify-Access-Token carries Shopify admin API tokens
+		// verbatim; treated as a strong api-key header by name so it
+		// surfaces with header placement rather than falling through.
+		"x-shopify-access-token":
 		return true
 	default:
 		return strings.Contains(lowerName, "api-key") || strings.Contains(lowerName, "api_key")
 	}
+}
+
+// authorizationBearerLike reports whether an Authorization header value
+// follows a bearer-style scheme: the standard `Bearer <token>` or
+// GitHub's idiosyncratic lowercase `token <hex>` form. Both place an
+// opaque credential after a single-word scheme prefix and round-trip the
+// same way through bearer auth codegen.
+func authorizationBearerLike(value string) bool {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return false
+	}
+	if strings.HasPrefix(v, "Bearer ") {
+		return true
+	}
+	// GitHub REST uses `Authorization: token ghp_<hex>`. Match the
+	// lowercase prefix specifically — `Token` (capital T) is non-standard
+	// in the wild and risks colliding with random `Token <id>` schemes
+	// some legacy APIs invent.
+	if strings.HasPrefix(v, "token ") {
+		return true
+	}
+	return false
+}
+
+// authorizationBasicLike reports whether an Authorization header value
+// is HTTP Basic credentials (`Basic <base64>`). Treated as api_key auth
+// with a `Basic {token}` format so the operator supplies the base64
+// blob verbatim via env var, matching how Stripe / Twilio / etc. expect
+// the credential to travel.
+func authorizationBasicLike(value string) bool {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return false
+	}
+	return strings.HasPrefix(v, "Basic ")
 }
 
 func isStrongAuthQueryName(lowerName string) bool {
@@ -1504,7 +1623,7 @@ func detectCapturedAuth(capture *AuthCapture, entries []EnrichedEntry, envPrefix
 				Header:       "Cookie",
 				In:           "cookie",
 				CookieMode:   detectCookieMode(entries),
-				CookieDomain: capture.BoundDomain,
+				CookieDomain: registrableCookieDomain(capture.BoundDomain),
 				EnvVars:      envVarsOrNil(envPrefix, "COOKIES"),
 			}
 		case "composed":
@@ -1516,7 +1635,7 @@ func detectCapturedAuth(capture *AuthCapture, entries []EnrichedEntry, envPrefix
 				Type:         "composed",
 				Header:       headerName,
 				Format:       capture.Format,
-				CookieDomain: capture.BoundDomain,
+				CookieDomain: registrableCookieDomain(capture.BoundDomain),
 				Cookies:      capture.Cookies,
 			}
 		}
@@ -1526,12 +1645,40 @@ func detectCapturedAuth(capture *AuthCapture, entries []EnrichedEntry, envPrefix
 			Header:       "Cookie",
 			In:           "cookie",
 			CookieMode:   detectCookieMode(entries),
-			CookieDomain: capture.BoundDomain,
+			CookieDomain: registrableCookieDomain(capture.BoundDomain),
 			EnvVars:      envVarsOrNil(envPrefix, "COOKIES"),
 		}
 	}
 
 	return spec.AuthConfig{}
+}
+
+// registrableCookieDomain reduces a captured cookie domain (which often
+// pins to one subdomain seen on the wire, e.g. `.edgeapi.slack.com`) to
+// the registrable root via publicsuffix (`.slack.com`). The input's
+// leading-dot convention is preserved verbatim: `.edgeapi.slack.com`
+// becomes `.slack.com`; `edgeapi.slack.com` becomes `slack.com`. A host
+// that already equals its eTLD+1 is returned unchanged. Returns the
+// input unchanged when publicsuffix can't resolve it (intranet names,
+// raw IPs, etc.) or when the input is empty.
+func registrableCookieDomain(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	hasLeadingDot := strings.HasPrefix(trimmed, ".")
+	host := strings.TrimPrefix(trimmed, ".")
+	if host == "" {
+		return trimmed
+	}
+	registered, err := publicsuffix.EffectiveTLDPlusOne(strings.ToLower(host))
+	if err != nil || registered == "" {
+		return trimmed
+	}
+	if hasLeadingDot {
+		return "." + registered
+	}
+	return registered
 }
 
 // detectCookieMode inspects captured Cookie request headers and returns

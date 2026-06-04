@@ -84,6 +84,15 @@ func exemplarFromEntry(entry EnrichedEntry) wireevidence.Exemplar {
 				ex.Query[k] = vs[0]
 			}
 		}
+		// DSN-style URLs (Sentry et al.) embed a credential in the
+		// userinfo segment. Surface it as its own slot so classifier
+		// rules can target the location specifically without risking
+		// false positives on generic 32-hex query params.
+		if parsed.User != nil {
+			if userinfo := parsed.User.String(); userinfo != "" {
+				ex.URLUserinfo = userinfo
+			}
+		}
 	}
 
 	body := strings.TrimSpace(entry.RequestBody)

@@ -365,25 +365,15 @@ func TestClassifySlot_RealAPIVocabulary(t *testing.T) {
 	})
 
 	t.Run("SentryDSNUserinfo_auth_secret", func(t *testing.T) {
-		// Still gated after PR 9 classifier extension: a bare 32-hex value-shape
-		// rule would over-match (UUID-without-dashes, MD5 digests in cache
-		// headers, ...). The right fix lives upstream -- once the parser surfaces
-		// URL userinfo as its own slot (LocationURLUserinfo), the classifier can
-		// pattern-match on that location+shape pair.
-		skipUnlessRunPinFails(t, "PR 12 (URL-userinfo parsing)", "convertHAREntry/inferURLParams must surface url.User as a slot")
 		t.Parallel()
-		// Sentry DSNs embed a public key in the URL's userinfo
-		// segment (https://<32hex>@host/path). Today nothing parses
-		// url.User into the evidence model, so the classifier never
-		// sees it. The pin: once the userinfo IS surfaced as a slot
-		// (likely under a new Location value like LocationURLUserinfo),
-		// the 32-hex shape must be classified auth-secret. The location
-		// constant doesn't exist yet, so this test pins shape via the
-		// query location as a stand-in — the real test arrives with
-		// the parser extension.
-		class, _ := ClassifySlot(LocationQuery, "userinfo",
+		// Sentry DSNs embed a public key in the URL's userinfo segment
+		// (https://<32hex>@host/path). The parser now surfaces it as a
+		// LocationURLUserinfo slot named "userinfo"; the classifier rule
+		// treats any non-empty userinfo as auth-secret unconditionally
+		// because URL-userinfo has no legitimate non-credential use.
+		class, _ := ClassifySlot(LocationURLUserinfo, "userinfo",
 			[]string{"abcdef0123456789abcdef0123456789"})
 		assert.Equal(t, ClassAuthSecret, class,
-			"32-hex DSN public key in URL userinfo is auth-secret")
+			"DSN public key in URL userinfo is auth-secret regardless of shape")
 	})
 }

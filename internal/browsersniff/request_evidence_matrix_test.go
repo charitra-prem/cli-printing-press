@@ -95,7 +95,7 @@ func TestRequestEvidenceMatrix(t *testing.T) {
 			wantAuthType:     "cookie",
 			wantAuthHeader:   "Cookie",
 			wantAuthEnvVar:   "EDGEAPI_SLACK_COOKIES",
-			wantCookieDomain: ".edgeapi.slack.com",
+			wantCookieDomain: ".slack.com",
 			wantEndpoints: []endpointAssertion{
 				// `cache` is reserved; PR 8's fallback rename converts the
 				// resource to `cache_resource` during Validate(). Pinned in
@@ -191,12 +191,11 @@ func TestRequestEvidenceMatrix(t *testing.T) {
 			name:    "stripe: form-encoded body, Basic auth, per-request idempotency key",
 			fixture: "../../testdata/sniff/stripe-form-idempotency-synthetic.har",
 			notes:   "Basic auth, form body, Idempotency-Key (meaningful per-request header)",
-			// Today the auth detector returns "none" for the Basic header
-			// — IsAuthSecretValue only matches xoxc / JWT shapes. This is
-			// a known gap; future fix moves wantAuthType to "basic" or
-			// "bearer_token" and adds an env var. Pinning the current
-			// behavior so a fix is detectable.
-			wantAuthType: "none",
+			// The auth-detector extension now treats `Authorization: Basic
+			// <base64>` as api_key auth with a `Basic {token}` format,
+			// instead of falling through to none.
+			wantAuthType:   "api_key",
+			wantAuthHeader: "Authorization",
 			wantEndpoints: []endpointAssertion{
 				{resource: "charges", method: "POST", path: "/v1/charges"},
 			},
@@ -222,12 +221,11 @@ func TestRequestEvidenceMatrix(t *testing.T) {
 			fixture:       "../../testdata/sniff/shopify-tenant-subdomain-synthetic.har",
 			notes:         "tenant baked into subdomain (acme-store.myshopify.com); shpat_-prefixed token header",
 			preserveHosts: true,
-			// Today the X-Shopify-Access-Token header is not recognized by
-			// auth detection (no name pattern, value shape doesn't match
-			// xoxc/JWT). Auth resolves to "none". After PR 9 adds a name
-			// rule for `*-access-token` or a value-shape rule for `shpat_`,
-			// this row updates to bearer_token / api_key.
-			wantAuthType: "none",
+			// X-Shopify-Access-Token now recognized via the strong-auth-
+			// header-name extension; resolves to api_key with header
+			// placement.
+			wantAuthType:   "api_key",
+			wantAuthHeader: "X-Shopify-Access-Token",
 			wantEndpoints: []endpointAssertion{
 				// Path-derived resource name is `admin` (first significant
 				// path segment under /admin/api/2024-04/...). Two endpoints
@@ -260,7 +258,7 @@ func TestRequestEvidenceMatrix(t *testing.T) {
 			wantAuthType:     "cookie",
 			wantAuthHeader:   "Cookie",
 			wantAuthEnvVar:   "EN_WIKIPEDIA_COOKIES",
-			wantCookieDomain: ".en.wikipedia.org",
+			wantCookieDomain: ".wikipedia.org",
 			wantEndpoints: []endpointAssertion{
 				// Path is `/w/api.php` with `action=edit` query; the
 				// resource lands under `w` (first significant segment).
@@ -286,11 +284,12 @@ func TestRequestEvidenceMatrix(t *testing.T) {
 			fixture:       "../../testdata/sniff/github-rest-conditional-synthetic.har",
 			notes:         "GitHub `token <hex>` Authorization scheme, vnd.github.v3+json accept, If-None-Match conditional",
 			preserveHosts: true,
-			// detectAuth only matches `Bearer ` exactly; GitHub's
-			// `token ghp_...` form falls through to none today. After
-			// the auth-detector extension (see specgen_test gap), this
-			// row updates to bearer_token.
-			wantAuthType: "none",
+			// The auth-detector extension now treats lowercase `token <hex>`
+			// as a bearer scheme alongside `Bearer <token>`, so GitHub's
+			// PAT-shape Authorization lands as bearer_token.
+			wantAuthType:   "bearer_token",
+			wantAuthHeader: "Authorization",
+			wantAuthEnvVar: "GITHUB_TOKEN",
 			wantEndpoints: []endpointAssertion{
 				// Both GETs share the `repos` resource (first significant
 				// segment of /repos/octocat/hello-world…).
@@ -331,13 +330,11 @@ func TestRequestEvidenceMatrix(t *testing.T) {
 				{resource: "envelope", method: "POST", path: "/api/{id}/envelope/"},
 			},
 			mustKeepSlots: []slotKey{
-				// Only the Content-Type / User-Agent headers reach the
-				// evidence sidecar today. The DSN public key in URL
-				// userinfo is NOT exposed as a slot — that's the gap.
-				// The classifier extension test (RUN_PIN_FAILS-gated)
-				// pins the future behavior: parse url.User and classify
-				// the userinfo as auth-secret.
+				// Content-Type / User-Agent headers reach the evidence
+				// sidecar; the DSN public key is now also surfaced via
+				// LocationURLUserinfo and classified auth-secret.
 				{location: wireevidence.LocationHeader, name: "Content-Type"},
+				{location: wireevidence.LocationURLUserinfo, name: "userinfo"},
 			},
 			minResources: 1,
 		},
@@ -415,20 +412,18 @@ func TestRequestEvidenceMatrix(t *testing.T) {
 		{
 			name:          "gitlab: URL-encoded project path tenant (%2F embedded slash)",
 			fixture:       "../../testdata/sniff/gitlab-encoded-path-synthetic.har",
-			notes:         "tenant `<group>%2F<project>` encoded in a single path segment; today the press DECODES %2F into a literal `/`, splitting one segment into two — wire fidelity gap",
+			notes:         "tenant `<group>%2F<project>` encoded in a single path segment; the press now preserves the encoded form via url.URL.RawPath",
 			preserveHosts: true,
-			// PRIVATE-TOKEN is not in isStrongAuthHeaderName today, so
-			// detectAuth falls through to none. After the auth-detector
-			// extension (paired with PR 9), this would resolve to api_key.
-			wantAuthType: "none",
+			// PRIVATE-TOKEN added to isStrongAuthHeaderName; GitLab PAT
+			// captures resolve to api_key with header placement.
+			wantAuthType:   "api_key",
+			wantAuthHeader: "PRIVATE-TOKEN",
 			wantEndpoints: []endpointAssertion{
-				// %2F gets decoded — `acme-corp%2Fwidget-service` becomes
-				// `acme-corp/widget-service` in the normalized path. The
-				// resource lands under `projects` (first significant segment
-				// after /api/v4/). Pin the (incorrect) literal path so a
-				// future fix that preserves encoded slashes flips this row.
-				{resource: "projects", method: "GET", path: "/api/v4/projects/acme-corp/widget-service/repository/commits"},
-				{resource: "projects", method: "GET", path: "/api/v4/projects/acme-corp/widget-service/issues"},
+				// %2F now stays encoded so the tenant segment travels as
+				// one piece end-to-end and endpoint matching is faithful
+				// to the captured wire.
+				{resource: "projects", method: "GET", path: "/api/v4/projects/acme-corp%2Fwidget-service/repository/commits"},
+				{resource: "projects", method: "GET", path: "/api/v4/projects/acme-corp%2Fwidget-service/issues"},
 			},
 			mustKeepSlots: []slotKey{
 				// PRIVATE-TOKEN classifies as semantic-default today
@@ -445,9 +440,11 @@ func TestRequestEvidenceMatrix(t *testing.T) {
 			fixture:       "../../testdata/sniff/twilio-basic-sid-synthetic.har",
 			notes:         "Authorization: Basic base64(AC<sid>:<token>); Account SID repeated in path → today inferred as {account_id} path param",
 			preserveHosts: true,
-			// Basic auth not detected today (IsAuthSecretValue only
-			// matches xoxc/JWT). detectAuth falls through to none.
-			wantAuthType: "none",
+			// Basic-auth recognition now lands as api_key with a `Basic
+			// {token}` format hint; the operator supplies the base64
+			// payload verbatim via env var.
+			wantAuthType:   "api_key",
+			wantAuthHeader: "Authorization",
 			wantEndpoints: []endpointAssertion{
 				// Path normalization promotes the 34-char AC<32-hex> SID
 				// to a {account_id} positional path param. Resource

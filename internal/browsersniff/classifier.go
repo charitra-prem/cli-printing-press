@@ -549,6 +549,14 @@ func extractHost(rawURL string) string {
 func extractPath(rawURL string) string {
 	parsed, err := url.Parse(rawURL)
 	if err == nil && parsed.Path != "" {
+		// Prefer RawPath when the original URL had encoded characters
+		// (notably %2F embedded in a single tenant segment, e.g. GitLab
+		// `group%2Fproject`). url.URL.Path silently decodes those, which
+		// splits one segment into two and breaks endpoint matching;
+		// RawPath preserves the wire shape verbatim.
+		if parsed.RawPath != "" {
+			return parsed.RawPath
+		}
 		return parsed.Path
 	}
 

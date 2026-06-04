@@ -50,6 +50,12 @@ func loadSlackRedactedSpec(t *testing.T) *spec.APISpec {
 	if err != nil {
 		t.Fatalf("analyzing fixture: %v", err)
 	}
+	// Mirror the CLI pipeline (see request_evidence_matrix_test.go): the
+	// reachability pass promotes cookie-auth on browser-clearance captures
+	// and is where Auth.CookieDomain comes from for Slack-shaped fixtures.
+	if trafficAnalysis, terr := AnalyzeTraffic(capture); terr == nil {
+		ApplyReachabilityDefaults(apiSpec, trafficAnalysis)
+	}
 	return apiSpec
 }
 
@@ -63,7 +69,6 @@ func loadSlackRedactedSpec(t *testing.T) *spec.APISpec {
 // because parser.go::convertHAREntry doesn't synthesize RequestBody
 // from HAR postData.text on the live HAR path.
 func TestPin_PR7_BodyFieldsProjectedFromMultipartHARPath(t *testing.T) {
-	skipUnlessRunPinFails(t, "PR 7", "body-field projection through HAR path")
 	t.Parallel()
 
 	apiSpec := loadSlackRedactedSpec(t)
@@ -155,7 +160,6 @@ func TestPin_PR9_VolatileSlotsSuppressedFromEndpointParams(t *testing.T) {
 // root. publicsuffix.EffectiveTLDPlusOne already imported by
 // analysis.go:1311; apply the same reduction here.
 func TestPin_PR10_CookieDomainReducedToRegistrableRoot(t *testing.T) {
-	skipUnlessRunPinFails(t, "PR 10", "cookie-domain via publicsuffix")
 	t.Parallel()
 
 	apiSpec := loadSlackRedactedSpec(t)
@@ -198,6 +202,9 @@ func loadTicketsSyntheticSpec(t *testing.T) *spec.APISpec {
 	apiSpec, err := AnalyzeCaptureWithOptions(capture, AnalyzeOptions{PreserveHosts: true})
 	if err != nil {
 		t.Fatalf("analyzing fixture: %v", err)
+	}
+	if trafficAnalysis, terr := AnalyzeTraffic(capture); terr == nil {
+		ApplyReachabilityDefaults(apiSpec, trafficAnalysis)
 	}
 	return apiSpec
 }
@@ -271,7 +278,6 @@ func TestPin_PR9_Safety_SyntheticBodyFieldsPreserved(t *testing.T) {
 // If the reducer is too eager (e.g. drops the api. subdomain on
 // anything api-prefixed), this fires.
 func TestPin_PR10_Safety_AlreadyRegistrableRootIsNoop(t *testing.T) {
-	skipUnlessRunPinFails(t, "PR 10 (safety)", "publicsuffix no-op on registrable root")
 	t.Parallel()
 
 	apiSpec := loadTicketsSyntheticSpec(t)
@@ -289,7 +295,6 @@ func TestPin_PR10_Safety_AlreadyRegistrableRootIsNoop(t *testing.T) {
 // shapes too. Today both fixtures' body fields don't reach Endpoint.Body
 // via the HAR path; PR 7 must fix both.
 func TestPin_PR7_Safety_SyntheticBodyAlsoProjected(t *testing.T) {
-	skipUnlessRunPinFails(t, "PR 7 (safety)", "synthetic multipart body also projected")
 	t.Parallel()
 
 	apiSpec := loadTicketsSyntheticSpec(t)

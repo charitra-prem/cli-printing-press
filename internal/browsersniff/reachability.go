@@ -79,7 +79,7 @@ func reachabilityCookieDomain(apiSpec *spec.APISpec, analysis *TrafficAnalysis) 
 	for _, raw := range []string{analysis.Summary.TargetURL, apiSpec.WebsiteURL, apiSpec.BaseURL} {
 		host := hostname(raw)
 		if host != "" {
-			return "." + strings.TrimPrefix(host, ".")
+			return registrableCookieDomain("." + strings.TrimPrefix(host, "."))
 		}
 	}
 	return ""
