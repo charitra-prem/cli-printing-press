@@ -1,0 +1,26 @@
+internal/browsersniff/specgen.go
+  s_83e2011e9d98a6::t_1861f560d57fd1 1277,1289-1297
+  s_83e2011e9d98a6::t_77de44ab071d8a 1386-1393,1400-1433
+internal/browsersniff/request_evidence_matrix_test.go
+  s_83e2011e9d98a6::t_0d6b4c80a4d1b9 419-422
+  s_83e2011e9d98a6::t_2caf2af8896c9f 194-198
+  s_83e2011e9d98a6::t_e29f3d66091a33 447-451
+  s_83e2011e9d98a6::t_1ac9fe2d5f24e0 224-228
+  s_83e2011e9d98a6::t_dd74609dd7ebf9 287-292
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "953a1adddd21ca5698dcd153f16eaa153474283f",
+  "prompts": {},
+  "sessions": {
+    "s_83e2011e9d98a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b448205b-83ea-4c8f-82e3-2ff83369d690",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "charitra-prem <charitra@premai.io>"
+    }
+  }
+}
