@@ -4360,11 +4360,15 @@ func paramNames(params []Param) []string {
 func TestValidateReservedNames(t *testing.T) {
 	t.Parallel()
 
-	t.Run("reserved resource name is rejected with a clear rename hint", func(t *testing.T) {
+	t.Run("reserved resource name is auto-renamed with collision-aware suffix", func(t *testing.T) {
 		t.Parallel()
 		// `feedback` collides with the reserved feedback.go template that
 		// declares the in-band agent feedback channel. Two collisions: file
-		// overwrite and `newFeedbackCmd` redeclaration.
+		// overwrite and `newFeedbackCmd` redeclaration. The fallback rename
+		// silently rewrites the resource to `feedback_resource` (with a
+		// stderr warning via warnf) rather than hard-erroring at parse time,
+		// so generation can proceed for sniffed/docs/OpenAPI inputs that
+		// happen to surface a reserved word as a top-level resource.
 		input := `name: testapi
 base_url: https://api.example.com
 auth:
@@ -4379,16 +4383,14 @@ resources:
         path: /feedback
         description: Submit feedback
 `
-		_, err := ParseBytes([]byte(input))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), `"feedback"`)
-		assert.Contains(t, err.Error(), "reserved Printing Press template")
-		assert.Contains(t, err.Error(), "Rename")
-		assert.Contains(t, err.Error(), "newFeedbackCmd", "error names the actual generated function")
-		assert.Contains(t, err.Error(), `"feedback_resource"`, "error suggests a concrete rename")
+		s, err := ParseBytes([]byte(input))
+		require.NoError(t, err)
+		assert.NotContains(t, s.Resources, "feedback", "bare reserved name must be renamed")
+		require.Contains(t, s.Resources, "feedback_resource", "fallback rename produces <name>_resource")
+		assert.Contains(t, s.Resources["feedback_resource"].Endpoints, "submit")
 	})
 
-	t.Run("multi-word reserved name produces correct PascalCase function name", func(t *testing.T) {
+	t.Run("multi-word reserved name is auto-renamed to <name>_resource", func(t *testing.T) {
 		t.Parallel()
 		input := `name: testapi
 base_url: https://api.example.com
@@ -4397,25 +4399,27 @@ auth:
   env_vars: [TESTAPI_TOKEN]
 resources:
   agent_context:
-    description: Should be rejected
+    description: Should be auto-renamed
     endpoints:
       list:
         method: GET
         path: /agent_context
         description: list
 `
-		_, err := ParseBytes([]byte(input))
-		require.Error(t, err)
-		// The error must name the actual generated function — newAgentContextCmd —
-		// not newAgent_contextCmd. The previous capitalize-first variant lied
-		// about the function name, which would confuse users debugging the
-		// collision.
-		assert.Contains(t, err.Error(), "newAgentContextCmd")
-		assert.NotContains(t, err.Error(), "newAgent_contextCmd")
+		s, err := ParseBytes([]byte(input))
+		require.NoError(t, err)
+		// The multi-word reserved name follows the same fallback pattern as
+		// single-word reservations: append `_resource` (collision-aware).
+		assert.NotContains(t, s.Resources, "agent_context")
+		require.Contains(t, s.Resources, "agent_context_resource")
 	})
 
-	t.Run("reserved search resource errors with remediation hint when no parent prefix exists", func(t *testing.T) {
+	t.Run("reserved search resource is auto-renamed when no parent prefix exists", func(t *testing.T) {
 		t.Parallel()
+		// When the path provides no parent segment (e.g. bare `/search`),
+		// applyReservedResourceParentPrefixes can't promote the resource;
+		// the fallback rename converts `search` → `search_resource` instead
+		// of hard-erroring.
 		input := `name: testapi
 base_url: https://api.example.com
 auth:
@@ -4430,11 +4434,11 @@ resources:
         path: /search
         description: Search
 `
-		_, err := ParseBytes([]byte(input))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), `reserved Printing Press template "search"`)
-		assert.Contains(t, err.Error(), `Rename to "search_resource"`)
-		assert.NotContains(t, err.Error(), "x-pp-resource")
+		s, err := ParseBytes([]byte(input))
+		require.NoError(t, err)
+		assert.NotContains(t, s.Resources, "search")
+		require.Contains(t, s.Resources, "search_resource")
+		assert.Contains(t, s.Resources["search_resource"].Endpoints, "run")
 	})
 
 	t.Run("reserved search resource is parent-prefixed when endpoint path provides one", func(t *testing.T) {
@@ -4482,8 +4486,13 @@ resources:
 		assert.Equal(t, "notes_search.run", s.MCP.Intents[0].Steps[0].Endpoint)
 	})
 
-	t.Run("reserved search resource with exact endpoint does not parent-prefix from sibling endpoint", func(t *testing.T) {
+	t.Run("reserved search resource with exact endpoint falls back to <name>_resource", func(t *testing.T) {
 		t.Parallel()
+		// One endpoint suggests a parent-prefix (`/notes/search` → `notes_search`)
+		// but a sibling endpoint terminates at the bare reserved segment
+		// (`/search`), which blocks the parent-prefix promotion. The fallback
+		// rename then converts the resource to `search_resource` so generation
+		// can continue.
 		input := `name: testapi
 base_url: https://api.example.com
 auth:
@@ -4502,14 +4511,21 @@ resources:
         path: /search
         description: Search everything
 `
-		_, err := ParseBytes([]byte(input))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), `reserved Printing Press template "search"`)
-		assert.Contains(t, err.Error(), `Rename to "search_resource"`)
+		s, err := ParseBytes([]byte(input))
+		require.NoError(t, err)
+		assert.NotContains(t, s.Resources, "search")
+		require.Contains(t, s.Resources, "search_resource")
+		assert.Contains(t, s.Resources["search_resource"].Endpoints, "notes")
+		assert.Contains(t, s.Resources["search_resource"].Endpoints, "global")
 	})
 
-	t.Run("auth resource name rejected", func(t *testing.T) {
+	t.Run("auth resource name is auto-renamed when an auth command is emitted", func(t *testing.T) {
 		t.Parallel()
+		// When the spec emits an auth command (anything other than auth.type:
+		// none), a top-level `auth` resource would both clobber the reserved
+		// auth.go template and shadow the `auth` cobra subcommand. The
+		// fallback rename converts it to `auth_resource`, which avoids both
+		// collisions (snake -> auth_resource.go, kebab -> auth-resource).
 		input := `name: testapi
 base_url: https://api.example.com
 auth:
@@ -4524,9 +4540,10 @@ resources:
         path: /auth
         description: list
 `
-		_, err := ParseBytes([]byte(input))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), `"auth"`)
+		s, err := ParseBytes([]byte(input))
+		require.NoError(t, err)
+		assert.NotContains(t, s.Resources, "auth")
+		require.Contains(t, s.Resources, "auth_resource")
 	})
 
 	t.Run("auth resource is allowed when no auth command is emitted", func(t *testing.T) {

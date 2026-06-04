@@ -50,6 +50,12 @@ func loadSlackRedactedSpec(t *testing.T) *spec.APISpec {
 	if err != nil {
 		t.Fatalf("analyzing fixture: %v", err)
 	}
+	// Mirror the CLI pipeline (see request_evidence_matrix_test.go): the
+	// reachability pass promotes cookie-auth on browser-clearance captures
+	// and is where Auth.CookieDomain comes from for Slack-shaped fixtures.
+	if trafficAnalysis, terr := AnalyzeTraffic(capture); terr == nil {
+		ApplyReachabilityDefaults(apiSpec, trafficAnalysis)
+	}
 	return apiSpec
 }
 
@@ -63,7 +69,6 @@ func loadSlackRedactedSpec(t *testing.T) *spec.APISpec {
 // because parser.go::convertHAREntry doesn't synthesize RequestBody
 // from HAR postData.text on the live HAR path.
 func TestPin_PR7_BodyFieldsProjectedFromMultipartHARPath(t *testing.T) {
-	skipUnlessRunPinFails(t, "PR 7", "body-field projection through HAR path")
 	t.Parallel()
 
 	apiSpec := loadSlackRedactedSpec(t)
@@ -102,7 +107,6 @@ func TestPin_PR7_BodyFieldsProjectedFromMultipartHARPath(t *testing.T) {
 // spec.applyReservedResourceParentPrefixes should handle bare reserved
 // resources as a fallback before validateReservedNames.
 func TestPin_PR8_ReservedCacheResourceAutoRenamed(t *testing.T) {
-	skipUnlessRunPinFails(t, "PR 8", "reserved-name auto-rename")
 	t.Parallel()
 
 	apiSpec := loadSlackRedactedSpec(t)
@@ -124,7 +128,6 @@ func TestPin_PR8_ReservedCacheResourceAutoRenamed(t *testing.T) {
 // the evidence sidecar for audit, but NOT projected into
 // Endpoint.Params, so they never become CLI flags / MCP tools / etc.
 func TestPin_PR9_VolatileSlotsSuppressedFromEndpointParams(t *testing.T) {
-	skipUnlessRunPinFails(t, "PR 9", "volatile-slot suppression upstream")
 	t.Parallel()
 
 	apiSpec := loadSlackRedactedSpec(t)
@@ -156,7 +159,6 @@ func TestPin_PR9_VolatileSlotsSuppressedFromEndpointParams(t *testing.T) {
 // root. publicsuffix.EffectiveTLDPlusOne already imported by
 // analysis.go:1311; apply the same reduction here.
 func TestPin_PR10_CookieDomainReducedToRegistrableRoot(t *testing.T) {
-	skipUnlessRunPinFails(t, "PR 10", "cookie-domain via publicsuffix")
 	t.Parallel()
 
 	apiSpec := loadSlackRedactedSpec(t)
@@ -200,6 +202,9 @@ func loadTicketsSyntheticSpec(t *testing.T) *spec.APISpec {
 	if err != nil {
 		t.Fatalf("analyzing fixture: %v", err)
 	}
+	if trafficAnalysis, terr := AnalyzeTraffic(capture); terr == nil {
+		ApplyReachabilityDefaults(apiSpec, trafficAnalysis)
+	}
 	return apiSpec
 }
 
@@ -212,7 +217,6 @@ func loadTicketsSyntheticSpec(t *testing.T) *spec.APISpec {
 // app_name in this fixture is a meaningful semantic-default that
 // shouldn't disappear from the CLI.
 func TestPin_PR9_Safety_SyntheticAPIKeepsSemanticParams(t *testing.T) {
-	skipUnlessRunPinFails(t, "PR 9 (safety)", "synthetic API keeps semantic params")
 	t.Parallel()
 
 	apiSpec := loadTicketsSyntheticSpec(t)
@@ -247,7 +251,6 @@ func TestPin_PR9_Safety_SyntheticAPIKeepsSemanticParams(t *testing.T) {
 // If PR 9 accidentally extends a too-broad name pattern to body
 // fields, mandatory user-supplied params would silently vanish.
 func TestPin_PR9_Safety_SyntheticBodyFieldsPreserved(t *testing.T) {
-	skipUnlessRunPinFails(t, "PR 9 (safety)", "synthetic body fields preserved")
 	t.Parallel()
 
 	apiSpec := loadTicketsSyntheticSpec(t)
@@ -272,7 +275,6 @@ func TestPin_PR9_Safety_SyntheticBodyFieldsPreserved(t *testing.T) {
 // If the reducer is too eager (e.g. drops the api. subdomain on
 // anything api-prefixed), this fires.
 func TestPin_PR10_Safety_AlreadyRegistrableRootIsNoop(t *testing.T) {
-	skipUnlessRunPinFails(t, "PR 10 (safety)", "publicsuffix no-op on registrable root")
 	t.Parallel()
 
 	apiSpec := loadTicketsSyntheticSpec(t)
@@ -290,7 +292,6 @@ func TestPin_PR10_Safety_AlreadyRegistrableRootIsNoop(t *testing.T) {
 // shapes too. Today both fixtures' body fields don't reach Endpoint.Body
 // via the HAR path; PR 7 must fix both.
 func TestPin_PR7_Safety_SyntheticBodyAlsoProjected(t *testing.T) {
-	skipUnlessRunPinFails(t, "PR 7 (safety)", "synthetic multipart body also projected")
 	t.Parallel()
 
 	apiSpec := loadTicketsSyntheticSpec(t)

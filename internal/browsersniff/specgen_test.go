@@ -1521,11 +1521,6 @@ func TestAnalyzeCapture_QueryParamsKeepDefaultContentLocation(t *testing.T) {
 // the auth-detector extension that pairs with PR 9 vocabulary work.
 func TestDetectAuth_GitHubTokenSchemeNotRecognized(t *testing.T) {
 	t.Parallel()
-	if os.Getenv("RUN_PIN_FAILS") == "" {
-		t.Skip("PIN: blocked by auth-detector extension (GitHub `token <hex>` " +
-			"scheme not in detectAuthWithWarnings switch). Run with " +
-			"RUN_PIN_FAILS=1 to see the failing assertion.")
-	}
 
 	auth := detectAuth(nil, []EnrichedEntry{
 		{
@@ -1550,11 +1545,6 @@ func TestDetectAuth_GitHubTokenSchemeNotRecognized(t *testing.T) {
 // resolving GitLab captures to api_key auth.
 func TestDetectAuth_GitLabPrivateTokenNotRecognized(t *testing.T) {
 	t.Parallel()
-	if os.Getenv("RUN_PIN_FAILS") == "" {
-		t.Skip("PIN: blocked by auth-detector extension (GitLab `PRIVATE-TOKEN` " +
-			"header not in isStrongAuthHeaderName). Run with " +
-			"RUN_PIN_FAILS=1 to see the failing assertion.")
-	}
 
 	auth := detectAuth(nil, []EnrichedEntry{
 		{
@@ -1583,11 +1573,6 @@ func TestDetectAuth_GitLabPrivateTokenNotRecognized(t *testing.T) {
 // "username" is a tenant identifier, not user credentials.
 func TestDetectAuth_TwilioBasicWithSIDNotRecognized(t *testing.T) {
 	t.Parallel()
-	if os.Getenv("RUN_PIN_FAILS") == "" {
-		t.Skip("PIN: blocked by auth-detector extension (Basic auth shape " +
-			"not in detectAuthWithWarnings switch). Run with " +
-			"RUN_PIN_FAILS=1 to see the failing assertion.")
-	}
 
 	auth := detectAuth(nil, []EnrichedEntry{
 		{

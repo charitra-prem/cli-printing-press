@@ -19,6 +19,13 @@ const (
 	LocationQuery     = "query"
 	LocationBodyForm  = "body_form"
 	LocationBodyMulti = "body_multipart"
+	// LocationURLUserinfo is the userinfo segment of a request URL
+	// (`https://<user>[:<pass>]@host/path`). Sentry's DSN format embeds
+	// a public key here. Modeled as a distinct location so classifier
+	// rules can be userinfo-specific (a 32-hex value in userinfo is
+	// almost always an auth secret; the same shape in a generic query
+	// param could be a UUID or hash digest).
+	LocationURLUserinfo = "url_userinfo"
 )
 
 // Classification values are the shared five-class vocabulary that maps a
@@ -52,11 +59,19 @@ type RequestEvidence struct {
 
 // Exemplar is one captured request.
 type Exemplar struct {
-	URL        string            `json:"url"`
-	Headers    map[string]string `json:"headers,omitempty"`
-	Query      map[string]string `json:"query,omitempty"`
-	BodyForm   map[string]string `json:"body_form,omitempty"`
-	BodyMulti  map[string]string `json:"body_multipart,omitempty"`
+	URL          string            `json:"url"`
+	Headers      map[string]string `json:"headers,omitempty"`
+	Query        map[string]string `json:"query,omitempty"`
+	BodyForm     map[string]string `json:"body_form,omitempty"`
+	BodyMulti    map[string]string `json:"body_multipart,omitempty"`
+	// URLUserinfo carries the URL's userinfo segment
+	// (`https://<user>[:<pass>]@host/...`) when present. Stored as a
+	// flat string because the user/password split is rarely meaningful
+	// (Sentry DSNs are user-only; HTTP Basic in URLs is legacy and
+	// always carries both halves as one opaque credential). BuildSlots
+	// emits a single LocationURLUserinfo slot named "userinfo" so
+	// classifier rules can target this location specifically.
+	URLUserinfo string `json:"url_userinfo,omitempty"`
 }
 
 // Slot is the classifier's decision for one (location, name) pair.

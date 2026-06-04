@@ -68,9 +68,12 @@ func InferRequestSchema(body string, contentType string) []spec.Param {
 		return nil
 	}
 
-	contentType = strings.ToLower(contentType)
+	// Keep the original-case contentType for downstream parsers that read
+	// case-sensitive parameters (notably the multipart boundary). Switch on a
+	// lowercase copy.
+	lowerCT := strings.ToLower(contentType)
 	switch {
-	case strings.Contains(contentType, "json"):
+	case strings.Contains(lowerCT, "json"):
 		var value any
 		if err := json.Unmarshal([]byte(body), &value); err != nil {
 			return nil
@@ -84,7 +87,7 @@ func InferRequestSchema(body string, contentType string) []spec.Param {
 		fields := make(map[string]*inferredField)
 		mergeObject(fields, root, 1)
 		return buildParams(fields, 1)
-	case strings.Contains(contentType, "form-urlencoded"):
+	case strings.Contains(lowerCT, "form-urlencoded"):
 		values := ParseFormBody(body)
 		if len(values) == 0 {
 			return nil
@@ -99,7 +102,7 @@ func InferRequestSchema(body string, contentType string) []spec.Param {
 			return params[i].Name < params[j].Name
 		})
 		return params
-	case strings.Contains(contentType, "multipart/form-data"):
+	case strings.Contains(lowerCT, "multipart/form-data"):
 		values := ParseMultipartBody(body, contentType)
 		if len(values) == 0 {
 			return nil
