@@ -74,6 +74,84 @@ var hexAuthHeaderNames = map[string]bool{
 	"api-key": true, // Discourse and many generic APIs
 }
 
+// volatileQueryBodyNamePrefixes match query/body field names whose values are
+// known to be per-request telemetry / client-build instrumentation that must
+// never be replayed verbatim. Today's seed covers Slack's `_x_*` family
+// (_x_b3_traceid, _x_csid, _x_id, _x_version_ts, _x_desktop_ia,
+// _x_frontend_build_type, _x_gantry, _x_num_retries, ...). The underscore
+// prefix is a convention shared by several JS SPAs for "private/internal
+// request metadata" and is rare in legitimate user-facing API params.
+// Compared case-insensitive against the trimmed name.
+var volatileQueryBodyNamePrefixes = []string{
+	"_x_",
+}
+
+// volatileQueryBodyExactNames are query/body field names that are known to
+// carry per-request browser/client noise rather than user intent. Distinct
+// from the prefix list because they're literal names not amenable to a
+// prefix rule. Compared case-insensitive.
+//
+// - `fp` is a browser fingerprint shard (Slack, Notion).
+// - `slack_route` is Slack's workspace routing token, baked into the host
+//   path in production but appearing as a query param under desktop sniffs.
+// - `cached_latest_updates` is a Slack client-cache marker; replaying the
+//   captured value against a fresh session causes the server to return
+//   stale "no changes" rather than fresh state.
+var volatileQueryBodyExactNames = map[string]bool{
+	"fp":                    true,
+	"slack_route":           true,
+	"cached_latest_updates": true,
+}
+
+// trackingIDNames are query/body/header field names that conventionally
+// carry a per-request tracking ID. They are classified volatile-drop ONLY
+// when the values vary across exemplars — a captured constant value at one
+// of these names is treated as a deliberate semantic-default (the
+// classifier defers to constancy as the strongest signal). Compared
+// case-insensitive against the trimmed name (and with hyphen<->underscore
+// folding so `request-id` and `request_id` collide).
+var trackingIDNames = map[string]bool{
+	"request_id":      true,
+	"trace_id":        true,
+	"correlation_id":  true,
+	"x-request-id":    true,
+	"x-correlation-id": true,
+}
+
+// isVolatileQueryBodyName reports whether the slot name itself signals
+// volatile-drop status for a query/body slot, independent of value
+// constancy. Header names use the IsVolatileHeaderName path; this function
+// is only consulted for query / body_form / body_multipart locations.
+func isVolatileQueryBodyName(name string) bool {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	if lower == "" {
+		return false
+	}
+	if volatileQueryBodyExactNames[lower] {
+		return true
+	}
+	for _, prefix := range volatileQueryBodyNamePrefixes {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// isTrackingIDName reports whether the name matches a per-request
+// tracking-id convention. The caller still needs to check that values vary
+// across exemplars before deciding to drop — a constant value at one of
+// these names is a semantic-default, not a volatile.
+func isTrackingIDName(name string) bool {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	if lower == "" {
+		return false
+	}
+	// Fold hyphen / underscore so request-id and request_id both match.
+	folded := strings.ReplaceAll(lower, "-", "_")
+	return trackingIDNames[lower] || trackingIDNames[folded]
+}
+
 var (
 	slackTokenPattern = regexp.MustCompile(`xox[abcdpr]-`)
 	// jwtPattern uses `eyJ` (base64 of `{"`) as the cheap shape check. Full
@@ -268,6 +346,26 @@ func ClassifySlot(location, name string, values []string) (class string, constan
 	}
 
 	if location == LocationHeader && IsVolatileHeaderName(name) {
+		return ClassVolatileDrop, constant
+	}
+
+	// Query / body slots: name-pattern volatile (Slack _x_*, fp, slack_route,
+	// ...). The header case is handled above; the body and query locations
+	// have their own vocabulary that the header rule does not cover.
+	if location == LocationQuery || location == LocationBodyForm || location == LocationBodyMulti {
+		if isVolatileQueryBodyName(name) {
+			return ClassVolatileDrop, constant
+		}
+	}
+
+	// Tracking-ID names (request_id, trace_id, correlation_id, ...) are
+	// volatile only when values vary across exemplars. A constant value at
+	// one of these names is a deliberate semantic-default (rare but real:
+	// some clients pin a single trace_id for a debugging session). The
+	// constancy check is the same signal the semantic-default branch below
+	// uses; checking it here just short-circuits the result for the
+	// tracking-name vocabulary.
+	if isTrackingIDName(name) && !constant {
 		return ClassVolatileDrop, constant
 	}
 

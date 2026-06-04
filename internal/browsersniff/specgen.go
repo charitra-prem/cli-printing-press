@@ -15,6 +15,7 @@ import (
 	"github.com/mvanhorn/cli-printing-press/v4/internal/discovery"
 	"github.com/mvanhorn/cli-printing-press/v4/internal/naming"
 	"github.com/mvanhorn/cli-printing-press/v4/internal/spec"
+	"github.com/mvanhorn/cli-printing-press/v4/internal/wireevidence"
 	"golang.org/x/net/publicsuffix"
 	"gopkg.in/yaml.v3"
 )
@@ -1132,6 +1133,18 @@ func dominantBodyContentType(entries []EnrichedEntry, body []spec.Param) string 
 func inferRequestBody(entries []EnrichedEntry, responseFields []spec.Param) []spec.Param {
 	fields := map[string]*inferredField{}
 	sampleCount := 0
+	// observedBodyValues tracks every observed value per (name, location)
+	// across exemplars so PR 9's volatile-drop classifier can suppress
+	// per-request telemetry body fields before they reach Endpoint.Body.
+	// auth-secret-classified fields are deliberately NOT dropped here:
+	// they belong in the spec (so codegen routes them to env vars) but
+	// must not be public CLI flags — that routing happens downstream.
+	type bodyKey struct {
+		name     string
+		location string
+	}
+	observedBodyValues := map[bodyKey][]string{}
+
 	for _, entry := range entries {
 		body := strings.TrimSpace(entry.RequestBody)
 		if body == "" {
@@ -1152,6 +1165,34 @@ func inferRequestBody(entries []EnrichedEntry, responseFields []spec.Param) []sp
 			}
 			field.count++
 			field.param = param
+			observedBodyValues[bodyKey{name: param.Name, location: param.ContentLocation}] = append(
+				observedBodyValues[bodyKey{name: param.Name, location: param.ContentLocation}],
+				stringerParamValue(param),
+			)
+		}
+	}
+
+	// PR 9 suppression: walk the classifier over each observed body field.
+	// Drop the field from the inferred-fields map (so it never reaches
+	// buildParams) when the classifier returns volatile-drop. Mapping from
+	// spec.ParamContentLocation to wireevidence.Location follows the same
+	// vocabulary the sidecar emits — body_multipart for multipart parts and
+	// body_form for form-urlencoded fields.
+	for key := range observedBodyValues {
+		wireLoc := ""
+		switch key.location {
+		case spec.ParamLocationBodyMultipart:
+			wireLoc = wireevidence.LocationBodyMulti
+		case spec.ParamLocationBodyForm:
+			wireLoc = wireevidence.LocationBodyForm
+		default:
+			// JSON / unknown body locations: classifier has no slot
+			// vocabulary for nested JSON fields, so leave them alone.
+			continue
+		}
+		class, _ := wireevidence.ClassifySlot(wireLoc, key.name, observedBodyValues[key])
+		if class == wireevidence.ClassVolatileDrop {
+			delete(fields, key.name)
 		}
 	}
 
@@ -1160,6 +1201,23 @@ func inferRequestBody(entries []EnrichedEntry, responseFields []spec.Param) []sp
 	}
 
 	return reconcileObservedBodyCursorNames(buildParams(fields, sampleCount), responseFields)
+}
+
+// stringerParamValue extracts a representative wire value for a body param
+// for classifier purposes. The classifier reads `values []string` and only
+// applies value-shape rules (auth-secret patterns); for body fields whose
+// values aren't preserved on the inferred path (boolean, integer typing
+// only), the empty string is a safe placeholder — the name-pattern rules
+// (the PR 9 volatile vocabulary) still fire correctly without value shape.
+func stringerParamValue(p spec.Param) string {
+	// inferRequestBody's body fields don't preserve the original wire
+	// value on the spec.Param (the inferredField only retains type/format),
+	// so we have no exemplar value to feed the classifier here. That's OK:
+	// the volatile classification path used at this layer is purely name-
+	// pattern (Slack _x_*, fp, slack_route, tracking IDs); none of the
+	// value-shape rules need to fire to suppress volatile body fields.
+	_ = p
+	return ""
 }
 
 func reconcileObservedBodyCursorNames(body []spec.Param, response []spec.Param) []spec.Param {
@@ -1204,6 +1262,12 @@ func findParamNameRecursive(params []spec.Param, lowerName string) string {
 
 func inferURLParams(entries []EnrichedEntry, normalizedPath string) []spec.Param {
 	paramsByName := make(map[string]spec.Param)
+	// observedQueryValues accumulates every value seen for each non-path
+	// query key across all exemplars, so PR 9's volatile classifier can
+	// decide (per the same constancy + name-pattern rules the wireevidence
+	// sidecar uses) whether a param is per-request telemetry that must be
+	// suppressed before it ever reaches CLI surface.
+	observedQueryValues := make(map[string][]string)
 
 	for segment := range strings.SplitSeq(normalizedPath, "/") {
 		if !strings.HasPrefix(segment, "{") || !strings.HasSuffix(segment, "}") {
@@ -1227,6 +1291,16 @@ func inferURLParams(entries []EnrichedEntry, normalizedPath string) []spec.Param
 		}
 
 		for key, values := range parsed.Query() {
+			if existing, exists := paramsByName[key]; exists && existing.Positional {
+				// Path-segment placeholder collided with a query key —
+				// don't track values for volatile classification because
+				// path positionals are user-required regardless.
+				continue
+			}
+			for _, v := range values {
+				observedQueryValues[key] = append(observedQueryValues[key], v)
+			}
+
 			if _, exists := paramsByName[key]; exists {
 				continue
 			}
@@ -1242,6 +1316,21 @@ func inferURLParams(entries []EnrichedEntry, normalizedPath string) []spec.Param
 				Required:    false,
 				Description: "",
 			}
+		}
+	}
+
+	// PR 9: drop volatile-class slots before they reach CLI / MCP / README
+	// surfaces. The sidecar still records them via wireevidence.BuildSlots
+	// for the audit trail, so the validation gate (PR 12) can verify
+	// they're correctly absent from the spec.
+	for key, values := range observedQueryValues {
+		param, exists := paramsByName[key]
+		if !exists || param.Positional {
+			continue
+		}
+		class, _ := wireevidence.ClassifySlot(wireevidence.LocationQuery, key, values)
+		if class == wireevidence.ClassVolatileDrop {
+			delete(paramsByName, key)
 		}
 	}
 

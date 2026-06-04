@@ -128,7 +128,6 @@ func TestPin_PR8_ReservedCacheResourceAutoRenamed(t *testing.T) {
 // the evidence sidecar for audit, but NOT projected into
 // Endpoint.Params, so they never become CLI flags / MCP tools / etc.
 func TestPin_PR9_VolatileSlotsSuppressedFromEndpointParams(t *testing.T) {
-	skipUnlessRunPinFails(t, "PR 9", "volatile-slot suppression upstream")
 	t.Parallel()
 
 	apiSpec := loadSlackRedactedSpec(t)
@@ -218,7 +217,6 @@ func loadTicketsSyntheticSpec(t *testing.T) *spec.APISpec {
 // app_name in this fixture is a meaningful semantic-default that
 // shouldn't disappear from the CLI.
 func TestPin_PR9_Safety_SyntheticAPIKeepsSemanticParams(t *testing.T) {
-	skipUnlessRunPinFails(t, "PR 9 (safety)", "synthetic API keeps semantic params")
 	t.Parallel()
 
 	apiSpec := loadTicketsSyntheticSpec(t)
@@ -253,7 +251,6 @@ func TestPin_PR9_Safety_SyntheticAPIKeepsSemanticParams(t *testing.T) {
 // If PR 9 accidentally extends a too-broad name pattern to body
 // fields, mandatory user-supplied params would silently vanish.
 func TestPin_PR9_Safety_SyntheticBodyFieldsPreserved(t *testing.T) {
-	skipUnlessRunPinFails(t, "PR 9 (safety)", "synthetic body fields preserved")
 	t.Parallel()
 
 	apiSpec := loadTicketsSyntheticSpec(t)
