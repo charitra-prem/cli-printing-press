@@ -191,12 +191,11 @@ func TestRequestEvidenceMatrix(t *testing.T) {
 			name:    "stripe: form-encoded body, Basic auth, per-request idempotency key",
 			fixture: "../../testdata/sniff/stripe-form-idempotency-synthetic.har",
 			notes:   "Basic auth, form body, Idempotency-Key (meaningful per-request header)",
-			// Today the auth detector returns "none" for the Basic header
-			// — IsAuthSecretValue only matches xoxc / JWT shapes. This is
-			// a known gap; future fix moves wantAuthType to "basic" or
-			// "bearer_token" and adds an env var. Pinning the current
-			// behavior so a fix is detectable.
-			wantAuthType: "none",
+			// The auth-detector extension now treats `Authorization: Basic
+			// <base64>` as api_key auth with a `Basic {token}` format,
+			// instead of falling through to none.
+			wantAuthType:   "api_key",
+			wantAuthHeader: "Authorization",
 			wantEndpoints: []endpointAssertion{
 				{resource: "charges", method: "POST", path: "/v1/charges"},
 			},
@@ -222,12 +221,11 @@ func TestRequestEvidenceMatrix(t *testing.T) {
 			fixture:       "../../testdata/sniff/shopify-tenant-subdomain-synthetic.har",
 			notes:         "tenant baked into subdomain (acme-store.myshopify.com); shpat_-prefixed token header",
 			preserveHosts: true,
-			// Today the X-Shopify-Access-Token header is not recognized by
-			// auth detection (no name pattern, value shape doesn't match
-			// xoxc/JWT). Auth resolves to "none". After PR 9 adds a name
-			// rule for `*-access-token` or a value-shape rule for `shpat_`,
-			// this row updates to bearer_token / api_key.
-			wantAuthType: "none",
+			// X-Shopify-Access-Token now recognized via the strong-auth-
+			// header-name extension; resolves to api_key with header
+			// placement.
+			wantAuthType:   "api_key",
+			wantAuthHeader: "X-Shopify-Access-Token",
 			wantEndpoints: []endpointAssertion{
 				// Path-derived resource name is `admin` (first significant
 				// path segment under /admin/api/2024-04/...). Two endpoints
@@ -286,11 +284,12 @@ func TestRequestEvidenceMatrix(t *testing.T) {
 			fixture:       "../../testdata/sniff/github-rest-conditional-synthetic.har",
 			notes:         "GitHub `token <hex>` Authorization scheme, vnd.github.v3+json accept, If-None-Match conditional",
 			preserveHosts: true,
-			// detectAuth only matches `Bearer ` exactly; GitHub's
-			// `token ghp_...` form falls through to none today. After
-			// the auth-detector extension (see specgen_test gap), this
-			// row updates to bearer_token.
-			wantAuthType: "none",
+			// The auth-detector extension now treats lowercase `token <hex>`
+			// as a bearer scheme alongside `Bearer <token>`, so GitHub's
+			// PAT-shape Authorization lands as bearer_token.
+			wantAuthType:   "bearer_token",
+			wantAuthHeader: "Authorization",
+			wantAuthEnvVar: "GITHUB_TOKEN",
 			wantEndpoints: []endpointAssertion{
 				// Both GETs share the `repos` resource (first significant
 				// segment of /repos/octocat/hello-world…).
@@ -417,10 +416,10 @@ func TestRequestEvidenceMatrix(t *testing.T) {
 			fixture:       "../../testdata/sniff/gitlab-encoded-path-synthetic.har",
 			notes:         "tenant `<group>%2F<project>` encoded in a single path segment; today the press DECODES %2F into a literal `/`, splitting one segment into two — wire fidelity gap",
 			preserveHosts: true,
-			// PRIVATE-TOKEN is not in isStrongAuthHeaderName today, so
-			// detectAuth falls through to none. After the auth-detector
-			// extension (paired with PR 9), this would resolve to api_key.
-			wantAuthType: "none",
+			// PRIVATE-TOKEN added to isStrongAuthHeaderName; GitLab PAT
+			// captures resolve to api_key with header placement.
+			wantAuthType:   "api_key",
+			wantAuthHeader: "PRIVATE-TOKEN",
 			wantEndpoints: []endpointAssertion{
 				// %2F gets decoded — `acme-corp%2Fwidget-service` becomes
 				// `acme-corp/widget-service` in the normalized path. The
@@ -445,9 +444,11 @@ func TestRequestEvidenceMatrix(t *testing.T) {
 			fixture:       "../../testdata/sniff/twilio-basic-sid-synthetic.har",
 			notes:         "Authorization: Basic base64(AC<sid>:<token>); Account SID repeated in path → today inferred as {account_id} path param",
 			preserveHosts: true,
-			// Basic auth not detected today (IsAuthSecretValue only
-			// matches xoxc/JWT). detectAuth falls through to none.
-			wantAuthType: "none",
+			// Basic-auth recognition now lands as api_key with a `Basic
+			// {token}` format hint; the operator supplies the base64
+			// payload verbatim via env var.
+			wantAuthType:   "api_key",
+			wantAuthHeader: "Authorization",
 			wantEndpoints: []endpointAssertion{
 				// Path normalization promotes the 34-char AC<32-hex> SID
 				// to a {account_id} positional path param. Resource
