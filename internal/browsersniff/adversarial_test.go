@@ -165,18 +165,15 @@ func TestAdversarial_OAuthCallback_CodeMustNotBeReplayed(t *testing.T) {
 		"OAuth `code` is a one-time bearer-like secret; must be classified auth-secret")
 }
 
-// TestAdversarial_OptionsPreflight_SurfacedToday pins the current gap:
-// CORS preflight OPTIONS requests should not generate CLI commands
-// (they're browser-internal, not real API endpoints). Today the spec
-// gen DOES surface the OPTIONS endpoint — a known issue. This test
-// asserts the current behavior so a future upstream filter
-// (post-PR-9 or a new "ignore OPTIONS" rule) flips it green.
-func TestAdversarial_OptionsPreflight_SurfacedToday(t *testing.T) {
+// TestAdversarial_OptionsPreflight_DroppedFromSpec pins the post-fix
+// behavior: CORS preflight OPTIONS requests are browser-internal and must
+// not surface as CLI-generatable endpoints. The classifier filters them
+// to the noise pile in ClassifyEntries so they remain visible in the
+// traffic-analysis sidecar for audit but never reach spec generation.
+func TestAdversarial_OptionsPreflight_DroppedFromSpec(t *testing.T) {
 	t.Parallel()
 	_, result := loadAdversarialSpec(t, "options-preflight.har")
 
-	// Today: OPTIONS surfaces as an endpoint with method=OPTIONS.
-	// Find it; document the gap.
 	var sawOptions bool
 	for _, resource := range result.apiSpec.Resources {
 		for _, ep := range resource.Endpoints {
@@ -186,15 +183,6 @@ func TestAdversarial_OptionsPreflight_SurfacedToday(t *testing.T) {
 		}
 	}
 
-	if os.Getenv("RUN_PIN_FAILS") == "" {
-		// Default: assert what's TRUE TODAY (regression guard for the
-		// current behavior; flips when the OPTIONS filter lands).
-		assert.True(t, sawOptions,
-			"OPTIONS preflight surfaces as a CLI-generatable endpoint today; "+
-				"this assertion graduates to assert.False once OPTIONS filtering lands")
-		return
-	}
-	// RUN_PIN_FAILS=1: assert the desired post-fix behavior.
 	assert.False(t, sawOptions,
 		"OPTIONS preflight is a browser-internal request; must not generate a CLI command")
 }
@@ -365,13 +353,11 @@ func TestAdversarial_QueryBodyNameCollision_NoMerge(t *testing.T) {
 	_ = bodyIDSlot // body slot is allowed-but-not-required today
 }
 
-// TestAdversarial_HEADRequest_SurfacedToday pins the current gap: HEAD
-// requests (typically used programmatically to check resource existence
-// or fetch headers without a body) surface as discoverable CLI endpoints
-// today. Like OPTIONS, they're rarely useful as user-facing commands.
-// This test asserts what's TRUE TODAY so a future "ignore HEAD/OPTIONS"
-// filter PR can flip it.
-func TestAdversarial_HEADRequest_SurfacedToday(t *testing.T) {
+// TestAdversarial_HEADRequest_DroppedFromSpec pins the post-fix behavior:
+// HEAD requests are programmatic existence/metadata probes, not user-facing
+// API calls. Like OPTIONS, they are filtered to the noise pile in
+// ClassifyEntries and never reach spec generation.
+func TestAdversarial_HEADRequest_DroppedFromSpec(t *testing.T) {
 	t.Parallel()
 	_, result := loadAdversarialSpec(t, "head-discovery-request.har")
 
@@ -384,15 +370,6 @@ func TestAdversarial_HEADRequest_SurfacedToday(t *testing.T) {
 		}
 	}
 
-	if os.Getenv("RUN_PIN_FAILS") == "" {
-		// Default: assert what's TRUE TODAY (regression guard for
-		// the current behavior; flips when the HEAD filter lands).
-		assert.True(t, sawHEAD,
-			"HEAD requests surface as CLI-generatable endpoints today; "+
-				"this assertion graduates to assert.False once HEAD/OPTIONS filtering lands")
-		return
-	}
-	// RUN_PIN_FAILS=1: assert the desired post-fix behavior.
 	assert.False(t, sawHEAD,
 		"HEAD is a programmatic check method; must not generate a CLI command")
 }

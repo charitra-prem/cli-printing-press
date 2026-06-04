@@ -625,3 +625,35 @@ func TestFilterEndpointsByMinSamples_DefaultIsNoop(t *testing.T) {
 	}
 	assert.Equal(t, before, after, "endpoint count must not change with default min-samples")
 }
+
+// TestSetIncludeTelemetryHosts_TogglesSentryClassification pins the
+// --include-telemetry-hosts knob: a Sentry-shaped ingest entry is noise by
+// default (telemetry filter penalty) and reclassifies as api once the
+// operator opts in. The toggle is process-wide so the test restores the
+// default via t.Cleanup so parallel cases don't see leaked state.
+func TestSetIncludeTelemetryHosts_TogglesSentryClassification(t *testing.T) {
+	// Not t.Parallel(): the toggle is a package-level switch and would race
+	// the other ClassifyEntries tests if they ran concurrently with it.
+	t.Cleanup(func() { SetIncludeTelemetryHosts(false) })
+
+	entry := EnrichedEntry{
+		Method:              "POST",
+		URL:                 "https://o123.ingest.sentry.io/api/456/envelope/?sentry_key=abc",
+		ResponseStatus:      200,
+		ResponseContentType: "application/json",
+		ResponseBody:        `{"id":"event-1"}`,
+		RequestHeaders:      map[string]string{"Content-Type": "application/json"},
+	}
+
+	SetIncludeTelemetryHosts(false)
+	api, noise := ClassifyEntries([]EnrichedEntry{entry})
+	require.Empty(t, api, "Sentry ingest must classify as noise by default")
+	require.Len(t, noise, 1)
+	assert.Equal(t, "noise", noise[0].Classification)
+
+	SetIncludeTelemetryHosts(true)
+	api, noise = ClassifyEntries([]EnrichedEntry{entry})
+	require.Len(t, api, 1, "Sentry ingest must classify as api once telemetry inclusion is enabled")
+	assert.Equal(t, "api", api[0].Classification)
+	assert.Empty(t, noise, "no noise entries should remain when the toggle is on")
+}
