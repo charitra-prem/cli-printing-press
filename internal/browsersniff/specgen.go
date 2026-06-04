@@ -1375,6 +1375,7 @@ func detectAuthWithWarnings(capture *EnrichedCapture, entries []EnrichedEntry, n
 		return bearerAuth, sortedBoolKeys(rejectedWarnings)
 	}
 	if headerAPIKeyAuth.Type != "" {
+		headerAPIKeyAuth.AdditionalHeaders = inferIdentityCompanions(entries, headerAPIKeyAuth.Header, envPrefix)
 		return headerAPIKeyAuth, sortedBoolKeys(rejectedWarnings)
 	}
 	if strongQueryAuth.Type != "" {
@@ -1400,6 +1401,49 @@ func detectAuthWithWarnings(capture *EnrichedCapture, entries []EnrichedEntry, n
 	}
 
 	return spec.AuthConfig{Type: spec.TierAuthTypeNone}, sortedBoolKeys(rejectedWarnings)
+}
+
+// identityCompanionHeaderNames maps an api-key header name (lowercased)
+// to a peer header that names the calling identity. Discourse's
+// `Api-Username` is the canonical example: the api_key authenticates
+// the workspace, the username identifies which user the request runs
+// as. The companion is NOT a secret — both halves are required, but
+// the operator supplies them via separate env vars and the identity
+// half can safely appear in logs.
+var identityCompanionHeaderNames = map[string]string{
+	"api-key": "Api-Username",
+}
+
+// inferIdentityCompanions returns AdditionalHeaders entries for non-
+// secret identity peers of the winning api-key header. Empty when no
+// peer is recognized or the peer header never appears in the capture.
+// The returned env vars are marked Sensitive=false so codegen / docs
+// can distinguish them from the primary auth secret.
+func inferIdentityCompanions(entries []EnrichedEntry, winningHeader, envPrefix string) []spec.AdditionalAuthHeader {
+	companion, ok := identityCompanionHeaderNames[strings.ToLower(strings.TrimSpace(winningHeader))]
+	if !ok {
+		return nil
+	}
+	for _, entry := range entries {
+		if getHeaderValue(entry.RequestHeaders, companion) == "" {
+			continue
+		}
+		envName := strings.ToUpper(strings.ReplaceAll(companion, "-", "_"))
+		if envPrefix != "" {
+			envName = envPrefix + "_" + envName
+		}
+		return []spec.AdditionalAuthHeader{{
+			Header: companion,
+			In:     "header",
+			EnvVar: spec.AuthEnvVar{
+				Name:      envName,
+				Kind:      spec.AuthEnvVarKindPerCall,
+				Required:  true,
+				Sensitive: false,
+			},
+		}}
+	}
+	return nil
 }
 
 func isStrongAuthHeaderName(lowerName string) bool {
