@@ -95,7 +95,7 @@ func TestRequestEvidenceMatrix(t *testing.T) {
 			wantAuthType:     "cookie",
 			wantAuthHeader:   "Cookie",
 			wantAuthEnvVar:   "EDGEAPI_SLACK_COOKIES",
-			wantCookieDomain: ".edgeapi.slack.com",
+			wantCookieDomain: ".slack.com",
 			wantEndpoints: []endpointAssertion{
 				// `cache` is reserved; PR 8's fallback rename converts the
 				// resource to `cache_resource` during Validate(). Pinned in
@@ -260,7 +260,7 @@ func TestRequestEvidenceMatrix(t *testing.T) {
 			wantAuthType:     "cookie",
 			wantAuthHeader:   "Cookie",
 			wantAuthEnvVar:   "EN_WIKIPEDIA_COOKIES",
-			wantCookieDomain: ".en.wikipedia.org",
+			wantCookieDomain: ".wikipedia.org",
 			wantEndpoints: []endpointAssertion{
 				// Path is `/w/api.php` with `action=edit` query; the
 				// resource lands under `w` (first significant segment).

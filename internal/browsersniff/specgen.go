@@ -15,6 +15,7 @@ import (
 	"github.com/mvanhorn/cli-printing-press/v4/internal/discovery"
 	"github.com/mvanhorn/cli-printing-press/v4/internal/naming"
 	"github.com/mvanhorn/cli-printing-press/v4/internal/spec"
+	"golang.org/x/net/publicsuffix"
 	"gopkg.in/yaml.v3"
 )
 
@@ -1504,7 +1505,7 @@ func detectCapturedAuth(capture *AuthCapture, entries []EnrichedEntry, envPrefix
 				Header:       "Cookie",
 				In:           "cookie",
 				CookieMode:   detectCookieMode(entries),
-				CookieDomain: capture.BoundDomain,
+				CookieDomain: registrableCookieDomain(capture.BoundDomain),
 				EnvVars:      envVarsOrNil(envPrefix, "COOKIES"),
 			}
 		case "composed":
@@ -1516,7 +1517,7 @@ func detectCapturedAuth(capture *AuthCapture, entries []EnrichedEntry, envPrefix
 				Type:         "composed",
 				Header:       headerName,
 				Format:       capture.Format,
-				CookieDomain: capture.BoundDomain,
+				CookieDomain: registrableCookieDomain(capture.BoundDomain),
 				Cookies:      capture.Cookies,
 			}
 		}
@@ -1526,12 +1527,40 @@ func detectCapturedAuth(capture *AuthCapture, entries []EnrichedEntry, envPrefix
 			Header:       "Cookie",
 			In:           "cookie",
 			CookieMode:   detectCookieMode(entries),
-			CookieDomain: capture.BoundDomain,
+			CookieDomain: registrableCookieDomain(capture.BoundDomain),
 			EnvVars:      envVarsOrNil(envPrefix, "COOKIES"),
 		}
 	}
 
 	return spec.AuthConfig{}
+}
+
+// registrableCookieDomain reduces a captured cookie domain (which often
+// pins to one subdomain seen on the wire, e.g. `.edgeapi.slack.com`) to
+// the registrable root via publicsuffix (`.slack.com`). The input's
+// leading-dot convention is preserved verbatim: `.edgeapi.slack.com`
+// becomes `.slack.com`; `edgeapi.slack.com` becomes `slack.com`. A host
+// that already equals its eTLD+1 is returned unchanged. Returns the
+// input unchanged when publicsuffix can't resolve it (intranet names,
+// raw IPs, etc.) or when the input is empty.
+func registrableCookieDomain(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	hasLeadingDot := strings.HasPrefix(trimmed, ".")
+	host := strings.TrimPrefix(trimmed, ".")
+	if host == "" {
+		return trimmed
+	}
+	registered, err := publicsuffix.EffectiveTLDPlusOne(strings.ToLower(host))
+	if err != nil || registered == "" {
+		return trimmed
+	}
+	if hasLeadingDot {
+		return "." + registered
+	}
+	return registered
 }
 
 // detectCookieMode inspects captured Cookie request headers and returns
