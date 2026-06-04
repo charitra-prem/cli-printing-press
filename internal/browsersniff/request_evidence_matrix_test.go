@@ -97,10 +97,10 @@ func TestRequestEvidenceMatrix(t *testing.T) {
 			wantAuthEnvVar:   "EDGEAPI_SLACK_COOKIES",
 			wantCookieDomain: ".edgeapi.slack.com",
 			wantEndpoints: []endpointAssertion{
-				// `cache` is reserved but PR 8 hasn't landed yet, so the
-				// resource still appears under its raw name. Pinned in
+				// `cache` is reserved; PR 8's fallback rename converts the
+				// resource to `cache_resource` during Validate(). Pinned in
 				// slack_redacted_pin_test.go::TestPin_PR8_*.
-				{resource: "cache", method: "POST", path: "/cache/T0FAKE000/permissions/info", baseURL: "https://edgeapi.slack.com"},
+				{resource: "cache_resource", method: "POST", path: "/cache/T0FAKE000/permissions/info", baseURL: "https://edgeapi.slack.com"},
 				{resource: "conversations.history", method: "POST", path: "/api/conversations.history"},
 				{resource: "dnd.teamInfo", method: "POST", path: "/api/dnd.teamInfo"},
 			},

@@ -2672,6 +2672,7 @@ func ParseBytes(data []byte) (*APISpec, error) {
 	s.PromoteGlobalPathTemplateVars()
 	s.promoteParamsToBodyForWriteEndpoints()
 	s.applyReservedResourceParentPrefixes()
+	s.applyReservedResourceFallbackSuffix()
 	if err := s.validateReservedNames(); err != nil {
 		return nil, err
 	}
@@ -2856,6 +2857,66 @@ func (s *APISpec) applyReservedResourceParentPrefixes() {
 		delete(s.Resources, name)
 		s.Resources[candidate] = resource
 		s.rewriteResourceReferences(name, candidate)
+	}
+}
+
+// applyReservedResourceFallbackSuffix is the deterministic fallback for
+// reserved top-level resource names that applyReservedResourceParentPrefixes
+// could not parent-prefix (e.g., bare "/cache/<id>/permissions/info" where
+// "cache" has no parent segment). Renames "<name>" to "<name>_resource",
+// suffixing with "_2", "_3", ... when the candidate is itself taken. This
+// keeps generation moving for sniffed/OpenAPI/docs inputs that surface a
+// reserved word as a top-level resource — emitting a warning rather than
+// hard-erroring at parse time. Sub-resources are exempt from the reserved
+// check (they emit under a parent prefix) and need no rename.
+func (s *APISpec) applyReservedResourceFallbackSuffix() {
+	if s == nil || len(s.Resources) == 0 {
+		return
+	}
+	keys := make([]string, 0, len(s.Resources))
+	taken := make(map[string]struct{}, len(s.Resources))
+	for name := range s.Resources {
+		keys = append(keys, name)
+		taken[name] = struct{}{}
+	}
+	slices.Sort(keys)
+
+	for _, name := range keys {
+		if name == "auth" && !s.emitsAuthCommand() {
+			continue
+		}
+		if _, reserved := ReservedCLIResourceNames[name]; !reserved {
+			continue
+		}
+		candidate := s.uniqueReservedResourceFallbackName(name, taken)
+		resource := s.Resources[name]
+		delete(s.Resources, name)
+		s.Resources[candidate] = resource
+		s.rewriteResourceReferences(name, candidate)
+		delete(taken, name)
+		taken[candidate] = struct{}{}
+		warnf("resource %q collides with reserved Printing Press template; auto-renamed to %q", name, candidate)
+	}
+}
+
+// uniqueReservedResourceFallbackName returns "<name>_resource" if that slot
+// is free, else "<name>_resource_2", "<name>_resource_3", and so on.
+func (s *APISpec) uniqueReservedResourceFallbackName(name string, taken map[string]struct{}) string {
+	candidate := name + "_resource"
+	if _, exists := taken[candidate]; !exists {
+		if _, reserved := ReservedCLIResourceNames[candidate]; !reserved {
+			return candidate
+		}
+	}
+	for i := 2; ; i++ {
+		next := fmt.Sprintf("%s_resource_%d", name, i)
+		if _, exists := taken[next]; exists {
+			continue
+		}
+		if _, reserved := ReservedCLIResourceNames[next]; reserved {
+			continue
+		}
+		return next
 	}
 }
 
@@ -3594,6 +3655,13 @@ func singularize(s string) string {
 func (s *APISpec) Validate() error {
 	s.NormalizeAuthEnvVarSpecs()
 	s.InferEndpointTemplateVarsFromBaseURLs()
+	// Auto-rename bare reserved top-level resource names to "<name>_resource"
+	// (collision-aware) so input modes that bypass ParseBytes — most notably
+	// the browser-sniff specgen — never present "cache"/"feedback"/etc. as a
+	// top-level resource at generation time. Idempotent: once renamed, the
+	// new name is not in ReservedCLIResourceNames so this is a no-op on
+	// subsequent calls.
+	s.applyReservedResourceFallbackSuffix()
 	if s.Name == "" {
 		return fmt.Errorf("name is required")
 	}
