@@ -1,0 +1,19 @@
+internal/browsersniff/schema.go
+  s_83e2011e9d98a6::t_af2420a5cc1ab6 71-74,76,90,105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "70648f13a3fa518ae3de3e43f90adce9ffabf7d9",
+  "prompts": {},
+  "sessions": {
+    "s_83e2011e9d98a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b448205b-83ea-4c8f-82e3-2ff83369d690",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "charitra-prem <charitra@premai.io>"
+    }
+  }
+}
