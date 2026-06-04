@@ -1,0 +1,22 @@
+internal/generator/validate_evidence.go
+  s_83e2011e9d98a6::t_0d6fe3a7c1d19a 16,18
+  s_83e2011e9d98a6::t_77042db566a3ab 50-121,125-204
+internal/generator/validate_evidence_surface_test.go
+  s_83e2011e9d98a6::t_0149cf848a8261 1-152
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4ea48e246ed9cec2053c0ac2e18429d6e2f8b5b8",
+  "prompts": {},
+  "sessions": {
+    "s_83e2011e9d98a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b448205b-83ea-4c8f-82e3-2ff83369d690",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "charitra-prem <charitra@premai.io>"
+    }
+  }
+}
