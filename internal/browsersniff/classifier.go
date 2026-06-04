@@ -50,6 +50,8 @@ var (
 	additionalBlocklist   []string
 	includeListMu         sync.RWMutex
 	additionalInclude     []string
+	telemetryToggleMu     sync.RWMutex
+	includeTelemetryHosts bool
 	telemetryHosts        = []string{
 		"sentry.io",
 		"datadoghq.com",
@@ -81,8 +83,18 @@ func ClassifyEntries(entries []EnrichedEntry) (api []EnrichedEntry, noise []Enri
 	blocklist := append(DefaultBlocklist(), extraBlocklist...)
 	include := includePatterns()
 	for _, entry := range entries {
-		score := scoreEntry(entry, blocklist, include)
 		classified := entry
+		// CORS preflight (OPTIONS) and existence-probe (HEAD) requests are
+		// browser-internal or programmatic — never user-facing API endpoints.
+		// Drop them into the noise pile so they remain visible in the
+		// traffic-analysis sidecar for audit but never reach spec generation.
+		if isNonAPIMethod(entry.Method) {
+			classified.Classification = "noise"
+			classified.IsNoise = true
+			noise = append(noise, classified)
+			continue
+		}
+		score := scoreEntry(entry, blocklist, include)
 		if score > 0 {
 			classified.Classification = "api"
 			classified.IsNoise = false
@@ -98,11 +110,42 @@ func ClassifyEntries(entries []EnrichedEntry) (api []EnrichedEntry, noise []Enri
 	return api, noise
 }
 
+// isNonAPIMethod returns true for HTTP methods that browsers issue for
+// transport-layer reasons rather than user-facing API calls: OPTIONS for CORS
+// preflight, HEAD for existence/metadata probes. Surfacing either as a
+// generated CLI command produces noise commands the operator can't usefully
+// invoke.
+func isNonAPIMethod(method string) bool {
+	switch strings.ToUpper(strings.TrimSpace(method)) {
+	case "OPTIONS", "HEAD":
+		return true
+	}
+	return false
+}
+
 func SetAdditionalBlocklist(domains []string) {
 	blocklistMu.Lock()
 	defer blocklistMu.Unlock()
 
 	additionalBlocklist = append([]string(nil), domains...)
+}
+
+// SetIncludeTelemetryHosts toggles whether known telemetry hosts (Sentry,
+// Datadog, Mixpanel, etc.) are treated as real API endpoints. Default false
+// preserves the existing behavior where telemetry traffic is classified as
+// noise. Set true when the operator is intentionally sniffing their own
+// observability backend and wants those endpoints in the generated spec.
+func SetIncludeTelemetryHosts(enabled bool) {
+	telemetryToggleMu.Lock()
+	defer telemetryToggleMu.Unlock()
+
+	includeTelemetryHosts = enabled
+}
+
+func telemetryHostsIncluded() bool {
+	telemetryToggleMu.RLock()
+	defer telemetryToggleMu.RUnlock()
+	return includeTelemetryHosts
 }
 
 // SetAdditionalIncludeList stores operator-supplied include patterns that
@@ -149,6 +192,13 @@ func matchesIncludePattern(host string, path string, patterns []string) bool {
 	return false
 }
 
+// DefaultBlocklist returns the static-classification noise host list, which
+// always includes the analytics/ads hosts and — unless the caller has opted
+// in via SetIncludeTelemetryHosts — the known telemetry hosts. The toggle
+// affects this list so a sniff of the operator's own observability backend
+// isn't double-penalized: isTelemetryEntry short-circuits to false (skipping
+// the -100 telemetry penalty) AND the per-host blocklist demotion is lifted,
+// letting the normal scoring path decide based on response shape.
 func DefaultBlocklist() []string {
 	hosts := []string{
 		"google-analytics.com",
@@ -173,6 +223,9 @@ func DefaultBlocklist() []string {
 		"stats.g.doubleclick.net",
 		"adservice.google.com",
 		"connect.facebook.net",
+	}
+	if telemetryHostsIncluded() {
+		return hosts
 	}
 	return append(hosts, telemetryHosts...)
 }
@@ -264,6 +317,15 @@ func scoreEntry(entry EnrichedEntry, blocklist []string, include []string) int {
 }
 
 func isTelemetryEntry(entry EnrichedEntry) bool {
+	// When the operator opts in to including telemetry hosts (they're
+	// sniffing their own Sentry/Datadog/Mixpanel config), short-circuit so
+	// classification falls through to the normal scoring path. Both the
+	// host-match and the path+query-marker branches honor the toggle so
+	// generic telemetry-shaped endpoints route through scoring like any
+	// other capture.
+	if telemetryHostsIncluded() {
+		return false
+	}
 	host := strings.ToLower(extractHost(entry.URL))
 	path := strings.ToLower(extractPath(entry.URL))
 	if telemetryHostMatches(host) {

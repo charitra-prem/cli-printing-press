@@ -23,6 +23,7 @@ func newBrowserSniffCmd() *cobra.Command {
 	var name string
 	var blocklist string
 	var include string
+	var includeTelemetryHosts bool
 	var minSamples int
 	var authFrom string
 	// preserveHosts defaults to true on browser-sniff: a sniffed capture is
@@ -39,6 +40,7 @@ func newBrowserSniffCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			browsersniff.SetAdditionalBlocklist(splitCSV(blocklist))
 			browsersniff.SetAdditionalIncludeList(splitCSV(include))
+			browsersniff.SetIncludeTelemetryHosts(includeTelemetryHosts)
 
 			capture, err := browsersniff.LoadCapture(harPath)
 			if err != nil {
@@ -122,6 +124,7 @@ func newBrowserSniffCmd() *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "Override the auto-detected API name")
 	cmd.Flags().StringVar(&blocklist, "blocklist", "", "Comma-separated additional hostnames to filter (extends the default analytics/telemetry blocklist)")
 	cmd.Flags().StringVar(&include, "include", "", "Comma-separated host or path substrings to rescue from default filtering; matches win over --blocklist and the static-asset suffix demotion")
+	cmd.Flags().BoolVar(&includeTelemetryHosts, "include-telemetry-hosts", false, "Treat known telemetry hosts (Datadog, Sentry, Mixpanel, etc.) as real API endpoints. Use when sniffing your own observability config.")
 	cmd.Flags().BoolVar(&preserveHosts, "preserve-hosts", preserveHosts, "Keep every captured host with per-endpoint base_url overrides. Defaults to true for browser-sniff because the capture is the authoritative record of which host each endpoint lives on; pass --preserve-hosts=false to collapse onto the dominant host (legacy behavior)")
 	cmd.Flags().IntVar(&minSamples, "min-samples", 1, "Drop endpoints with fewer than N paired samples from the emitted spec; the dropped endpoints remain in the traffic-analysis sidecar for audit. Default 1 leaves behavior unchanged; 2+ is recommended for production capture")
 	cmd.Flags().StringVar(&authFrom, "auth-from", "", "Path to an enriched capture file to import auth from")
