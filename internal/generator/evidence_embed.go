@@ -26,6 +26,7 @@ import (
 	"strings"
 
 	"github.com/mvanhorn/cli-printing-press/v4/internal/naming"
+	"github.com/mvanhorn/cli-printing-press/v4/internal/spec"
 	"github.com/mvanhorn/cli-printing-press/v4/internal/wireevidence"
 )
 
@@ -188,6 +189,11 @@ func emitRequestEvidenceGo(outputDir string, sanitized []byte) error {
 // matching evidence entry's base_url. Matching is by canonical method + path.
 // Endpoints with no matching evidence entry are left alone (PR 2's
 // preserve-hosts fallback still applies).
+//
+// Deprecated: use overlayEvidenceRequestShape, which calls this overlay
+// alongside Params / Body / HeaderOverrides / RequestContentType repair.
+// Kept as a separate entry point because some test fixtures still target
+// it directly.
 func overlayEvidenceBaseURLs(g *Generator, doc *wireevidence.Document) {
 	if g == nil || g.Spec == nil || doc == nil {
 		return
@@ -220,6 +226,236 @@ func overlayEvidenceBaseURLs(g *Generator, doc *wireevidence.Document) {
 	}
 }
 
+// overlayEvidenceRequestShape promotes the sidecar from "base-URL repair only"
+// (PR 5) to "full request-shape repair" (PR 11). For each spec endpoint that
+// matches an evidence RequestEvidence by canonical method + path, the
+// overlay:
+//
+//   - Rewrites BaseURL from the sidecar (same as overlayEvidenceBaseURLs).
+//   - Ensures every non-volatile evidence slot is represented somewhere in
+//     the spec's surface: query → Endpoint.Params, body_form / body_multipart
+//     → Endpoint.Body, semantic-default header → Endpoint.HeaderOverrides.
+//   - Removes any spec param / body field that the sidecar classifies as
+//     volatile-drop (defense-in-depth — PR 9 already drops these upstream).
+//   - Stamps the wireevidence Classification onto matching Param entries so
+//     downstream surface walkers can route auth-secret slots to env vars.
+//   - Backfills RequestContentType when the spec has body fields but no
+//     declared content type and the sidecar carries one body location.
+//
+// Endpoints with no matching evidence entry are left untouched, matching
+// the prior overlay's tolerance for partial sidecars.
+//
+// The overlay is repair: today's spec (post-PR-7 + post-PR-9) is already
+// correct for fresh sniffs. The overlay catches silent drift between the
+// spec.yaml on disk and the sidecar (e.g., the user hand-edited spec.yaml,
+// or an older generator wrote a stale shape) before the PR 12 validation
+// gate fires.
+func overlayEvidenceRequestShape(g *Generator, doc *wireevidence.Document) {
+	if g == nil || g.Spec == nil || doc == nil {
+		return
+	}
+	overlayEvidenceBaseURLs(g, doc)
+
+	type key struct{ method, path string }
+	reqByKey := map[key]wireevidence.RequestEvidence{}
+	for _, req := range doc.Requests {
+		k := key{strings.ToUpper(strings.TrimSpace(req.Method)), req.NormalizedPath}
+		if k.path == "" {
+			continue
+		}
+		reqByKey[k] = req
+	}
+	if len(reqByKey) == 0 {
+		return
+	}
+
+	for rname, resource := range g.Spec.Resources {
+		modified := false
+		for ename, endpoint := range resource.Endpoints {
+			k := key{strings.ToUpper(strings.TrimSpace(endpoint.Method)), endpoint.Path}
+			req, ok := reqByKey[k]
+			if !ok {
+				continue
+			}
+			if applyShapeFromEvidence(&endpoint, req) {
+				resource.Endpoints[ename] = endpoint
+				modified = true
+			}
+		}
+		if modified {
+			g.Spec.Resources[rname] = resource
+		}
+	}
+}
+
+// applyShapeFromEvidence is the per-endpoint overlay body. Returns true when
+// any field on the endpoint was mutated, so the caller writes the modified
+// copy back into the spec map.
+func applyShapeFromEvidence(endpoint *spec.Endpoint, req wireevidence.RequestEvidence) bool {
+	if endpoint == nil {
+		return false
+	}
+	modified := false
+
+	// Index existing Params and Body by name for O(1) lookup. The spec
+	// stores them as slices; we mutate in place where possible.
+	paramIdx := map[string]int{}
+	for i, p := range endpoint.Params {
+		paramIdx[p.Name] = i
+	}
+	bodyIdx := map[string]int{}
+	for i, p := range endpoint.Body {
+		bodyIdx[p.Name] = i
+	}
+	headerIdx := map[string]int{}
+	for i, h := range endpoint.HeaderOverrides {
+		headerIdx[strings.ToLower(h.Name)] = i
+	}
+
+	for _, slot := range req.Slots {
+		switch slot.Classification {
+		case wireevidence.ClassVolatileDrop:
+			// Defense-in-depth: PR 9 dropped these upstream. If anything
+			// slipped through (hand-edited spec, older generator), drop
+			// here too.
+			switch slot.Location {
+			case wireevidence.LocationQuery:
+				if i, ok := paramIdx[slot.Name]; ok && !endpoint.Params[i].Positional {
+					endpoint.Params = removeParamAt(endpoint.Params, i)
+					paramIdx = rebuildParamIdx(endpoint.Params)
+					modified = true
+				}
+			case wireevidence.LocationBodyForm, wireevidence.LocationBodyMulti:
+				if i, ok := bodyIdx[slot.Name]; ok {
+					endpoint.Body = removeParamAt(endpoint.Body, i)
+					bodyIdx = rebuildParamIdx(endpoint.Body)
+					modified = true
+				}
+			case wireevidence.LocationHeader:
+				if i, ok := headerIdx[strings.ToLower(slot.Name)]; ok {
+					endpoint.HeaderOverrides = append(endpoint.HeaderOverrides[:i], endpoint.HeaderOverrides[i+1:]...)
+					headerIdx = rebuildHeaderIdx(endpoint.HeaderOverrides)
+					modified = true
+				}
+			}
+			continue
+
+		case wireevidence.ClassProtocolConstant:
+			// HTTP-stdlib handles content-negotiation headers already
+			// (User-Agent, Accept, ...). Don't pollute HeaderOverrides
+			// with them — the runtime stamps them.
+			continue
+		}
+
+		// Non-volatile, non-protocol-constant slots must be represented.
+		switch slot.Location {
+		case wireevidence.LocationQuery:
+			if _, ok := paramIdx[slot.Name]; !ok {
+				endpoint.Params = append(endpoint.Params, spec.Param{
+					Name: slot.Name,
+					Type: "string",
+					ContentLocation: "query",
+					Classification: slot.Classification,
+				})
+				paramIdx[slot.Name] = len(endpoint.Params) - 1
+				modified = true
+			} else if endpoint.Params[paramIdx[slot.Name]].Classification == "" && slot.Classification != "" {
+				endpoint.Params[paramIdx[slot.Name]].Classification = slot.Classification
+				modified = true
+			}
+		case wireevidence.LocationBodyForm:
+			if _, ok := bodyIdx[slot.Name]; !ok {
+				endpoint.Body = append(endpoint.Body, spec.Param{
+					Name: slot.Name,
+					Type: "string",
+					ContentLocation: "body_form",
+					Classification: slot.Classification,
+				})
+				bodyIdx[slot.Name] = len(endpoint.Body) - 1
+				modified = true
+			} else if endpoint.Body[bodyIdx[slot.Name]].Classification == "" && slot.Classification != "" {
+				endpoint.Body[bodyIdx[slot.Name]].Classification = slot.Classification
+				modified = true
+			}
+		case wireevidence.LocationBodyMulti:
+			if _, ok := bodyIdx[slot.Name]; !ok {
+				endpoint.Body = append(endpoint.Body, spec.Param{
+					Name: slot.Name,
+					Type: "string",
+					ContentLocation: "body_multipart",
+					Classification: slot.Classification,
+				})
+				bodyIdx[slot.Name] = len(endpoint.Body) - 1
+				modified = true
+			} else if endpoint.Body[bodyIdx[slot.Name]].Classification == "" && slot.Classification != "" {
+				endpoint.Body[bodyIdx[slot.Name]].Classification = slot.Classification
+				modified = true
+			}
+		case wireevidence.LocationHeader:
+			// Only surface semantic-default headers as overrides; auth-secret
+			// headers (Authorization, DD-API-KEY, ...) are handled by the
+			// AuthConfig machinery, not per-endpoint overrides.
+			if slot.Classification != wireevidence.ClassSemanticDefault {
+				continue
+			}
+			if _, ok := headerIdx[strings.ToLower(slot.Name)]; !ok {
+				endpoint.HeaderOverrides = append(endpoint.HeaderOverrides, spec.RequiredHeader{
+					Name:  slot.Name,
+					Value: slot.Value,
+				})
+				headerIdx[strings.ToLower(slot.Name)] = len(endpoint.HeaderOverrides) - 1
+				modified = true
+			}
+		}
+	}
+
+	// Backfill RequestContentType from a single body location if absent.
+	if strings.TrimSpace(endpoint.RequestContentType) == "" && len(endpoint.Body) > 0 {
+		mp, form := 0, 0
+		for _, b := range endpoint.Body {
+			switch b.ContentLocation {
+			case "body_multipart":
+				mp++
+			case "body_form":
+				form++
+			}
+		}
+		switch {
+		case mp > 0 && form == 0:
+			endpoint.RequestContentType = "multipart/form-data"
+			modified = true
+		case form > 0 && mp == 0:
+			endpoint.RequestContentType = "application/x-www-form-urlencoded"
+			modified = true
+		}
+	}
+
+	return modified
+}
+
+func removeParamAt(s []spec.Param, i int) []spec.Param {
+	if i < 0 || i >= len(s) {
+		return s
+	}
+	return append(s[:i], s[i+1:]...)
+}
+
+func rebuildParamIdx(params []spec.Param) map[string]int {
+	out := map[string]int{}
+	for i, p := range params {
+		out[p.Name] = i
+	}
+	return out
+}
+
+func rebuildHeaderIdx(headers []spec.RequiredHeader) map[string]int {
+	out := map[string]int{}
+	for i, h := range headers {
+		out[strings.ToLower(h.Name)] = i
+	}
+	return out
+}
+
 // applyRequestEvidence loads the sidecar referenced by RequestEvidencePath,
 // overlays per-endpoint BaseURLs, sanitizes the document, and writes the
 // embedded Go source file. Silent no-op when the spec source isn't sniffed
@@ -238,7 +474,7 @@ func (g *Generator) applyRequestEvidence() error {
 	if doc == nil || len(doc.Requests) == 0 {
 		return nil
 	}
-	overlayEvidenceBaseURLs(g, doc)
+	overlayEvidenceRequestShape(g, doc)
 	sanitized := sanitizeEvidence(doc)
 	data, err := marshalSanitizedEvidence(sanitized)
 	if err != nil {
