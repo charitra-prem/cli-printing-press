@@ -1,0 +1,37 @@
+internal/browsersniff/classifier.go
+  s_83e2011e9d98a6::t_71d1193d8f7bba 227-229
+  s_83e2011e9d98a6::t_2a73dd8b7fd39b 53-54
+  s_83e2011e9d98a6::t_e69ae317757654 87-97,113-123
+  s_83e2011e9d98a6::t_940d29a3d2a277 133-150
+  s_83e2011e9d98a6::t_0ff50b18353076 320-328
+  s_83e2011e9d98a6::t_5ad76c6246f07d 195-201
+internal/browsersniff/adversarial_test.go
+  s_83e2011e9d98a6::t_d6819e67dd8c08 168-173
+  s_83e2011e9d98a6::t_9578bbd7751b58 356-360
+testdata/sniff/adversarial/head-discovery-request.har
+  s_83e2011e9d98a6::t_172192c319dc8b 82-118
+internal/browsersniff/classifier_test.go
+  s_83e2011e9d98a6::t_e49bc5391cd8df 628-659
+testdata/sniff/adversarial/options-preflight.har
+  s_83e2011e9d98a6::t_3ea5908af27fcf 81-115
+internal/cli/browser_sniff.go
+  s_83e2011e9d98a6::t_a62502572b157d 43
+  s_83e2011e9d98a6::t_29491fe89de12f 127
+  s_83e2011e9d98a6::t_1889dba9924cdf 26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3b93b1ccf3108c64ec5888d00dd1a07c110b867d",
+  "prompts": {},
+  "sessions": {
+    "s_83e2011e9d98a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b448205b-83ea-4c8f-82e3-2ff83369d690",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "charitra-prem <charitra@premai.io>"
+    }
+  }
+}
